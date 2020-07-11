@@ -23,17 +23,11 @@ function ViewHelper( editorCamera, container ) {
 
 	var scope = this;
 
-	panel.dom.addEventListener( 'mouseup', function ( event ) {
+	panel.dom.addEventListener( 'mousedown', function ( event ) {
 
 		event.stopPropagation();
 
 		scope.handleClick( event );
-
-	} );
-
-	panel.dom.addEventListener( 'mousedown', function ( event ) {
-
-		event.stopPropagation();
 
 	} );
 
@@ -185,7 +179,7 @@ function ViewHelper( editorCamera, container ) {
 			var intersection = intersects[ 0 ];
 			var object = intersection.object;
 
-			prepareAnimationData( object, this.controls.center );
+			prepareAnimationData( object, this.controls.target );
 
 			this.animating = true;
 

@@ -4,16 +4,15 @@
 
 import { UISelect } from './libs/ui.js';
 
-function ViewportCamera( editor ) {
+function CameraSelection( editor ) {
 
 	var signals = editor.signals;
 
 	//
 
 	var cameraSelect = new UISelect();
-	cameraSelect.setPosition( 'absolute' );
-	cameraSelect.setRight( '10px' );
-	cameraSelect.setTop( '10px' );
+	cameraSelect.setId( 'cameraSelection' );
+
 	cameraSelect.onChange( function () {
 
 		editor.setViewportCamera( this.getValue() );
@@ -49,4 +48,4 @@ function ViewportCamera( editor ) {
 
 }
 
-export { ViewportCamera };
+export { CameraSelection };

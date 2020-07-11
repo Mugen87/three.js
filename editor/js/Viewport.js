@@ -10,7 +10,6 @@ import { UIPanel } from './libs/ui.js';
 
 import { EditorControls } from './EditorControls.js';
 
-import { ViewportCamera } from './Viewport.Camera.js';
 import { ViewportInfo } from './Viewport.Info.js';
 import { ViewHelper } from './Viewport.ViewHelper.js';
 
@@ -26,7 +25,6 @@ function Viewport( editor ) {
 	container.setId( 'viewport' );
 	container.setPosition( 'absolute' );
 
-	container.add( new ViewportCamera( editor ) );
 	container.add( new ViewportInfo( editor ) );
 
 	//
@@ -310,7 +308,7 @@ function Viewport( editor ) {
 
 	signals.editorCleared.add( function () {
 
-		controls.center.set( 0, 0, 0 );
+		controls.target.set( 0, 0, 0 );
 		render();
 
 	} );

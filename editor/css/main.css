@@ -463,6 +463,13 @@ select {
 			opacity: 0.5;
 		}
 
+#cameraSelection {
+	position: absolute;
+	right: 310px;
+	top: 42px;
+
+}
+
 .Outliner {
 	color: #444;
 	background-color: #fff;
@@ -553,6 +560,10 @@ select {
 		width: 100%;
 		top: calc(100% - 320px);
 		bottom: 0;
+	}
+
+	#cameraSelection {
+		right: 10px;
 	}
 
 }

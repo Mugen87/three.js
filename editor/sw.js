@@ -8,6 +8,7 @@ const assets = [
 	'../build/three.module.js',
 
 	'../examples/jsm/controls/TransformControls.js',
+	'../examples/jsm/controls/OrbitControls.js',
 
 	'../examples/jsm/libs/chevrotain.module.min.js',
 	'../examples/jsm/libs/inflate.module.min.js',
@@ -108,6 +109,7 @@ const assets = [
 	'./js/EditorControls.js',
 	'./js/Storage.js',
 
+	'./js/CameraSelection.js',
 	'./js/Editor.js',
 	'./js/Config.js',
 	'./js/History.js',
@@ -157,7 +159,6 @@ const assets = [
 	'./js/Strings.js',
 	'./js/Toolbar.js',
 	'./js/Viewport.js',
-	'./js/Viewport.Camera.js',
 	'./js/Viewport.Info.js',
 	'./js/Viewport.ViewHelper.js',
 
