@@ -3,7 +3,6 @@ import AttributeNode from '../core/AttributeNode.js';
 import FloatNode from '../inputs/FloatNode.js';
 import Matrix4Node from '../inputs/Matrix4Node.js';
 import TextureNode from '../inputs/TextureNode.js';
-import OperatorNode from '../math/OperatorNode.js';
 import PositionNode from './PositionNode.js';
 
 import { NodeUpdateType } from '../core/constants.js';
@@ -38,7 +37,7 @@ class SkinningPositionNode extends Node {
 
 		if ( getSkinningCallNode === undefined ) {
 
-			const skinIndexNode = new AttributeNode( 'skinIndex', 'vec4' );
+			const skinIndexNode = new AttributeNode( 'skinIndex', 'uvec4' );
 			const skinWeightNode = new AttributeNode( 'skinWeight', 'vec4' );
 
 			getSkinningCallNode = SkinningPosition.call( {
