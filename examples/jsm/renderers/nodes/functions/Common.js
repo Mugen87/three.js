@@ -1,7 +1,7 @@
 import FunctionNode from '../core/FunctionNode.js';
 
 export const BoneMatrix = new FunctionNode( `
-	mat4 getBoneMatrix( const in float i, const in mat4 bindMatrix, const in texture2D boneTexture, const in sampler boneSampler, const in float boneTextureSize ) {
+	mat4 getBoneMatrix( const in float i, const in texture2D boneTexture, const in sampler boneSampler, const in float boneTextureSize ) {
 
 		float j = i * 4.0;
 		float x = mod( j, float( boneTextureSize ) );
@@ -24,15 +24,15 @@ export const BoneMatrix = new FunctionNode( `
 	}`
 );
 
-export const ApplySkinning = new FunctionNode( `
-	vec4 applySkinning( const in vec4 index, const in vec4 weight, const in mat4 bindMatrix, const in texture2D boneTexture, const in sampler boneSampler, cconst in float boneTextureSize ) {
+export const SkinningPosition = new FunctionNode( `
+	vec3 getSkinningPosition( const in vec4 index, const in vec4 weight, const in vec3 position, const in mat4 bindMatrix, const in mat4 bindMatrixInverse, const in texture2D boneTexture, const in sampler boneSampler, const in float boneTextureSize ) {
 
 		mat4 boneMatX = getBoneMatrix( index.x, boneTexture, boneSampler, boneTextureSize );
 		mat4 boneMatY = getBoneMatrix( index.y, boneTexture, boneSampler, boneTextureSize );
 		mat4 boneMatZ = getBoneMatrix( index.z, boneTexture, boneSampler, boneTextureSize );
 		mat4 boneMatW = getBoneMatrix( index.w, boneTexture, boneSampler, boneTextureSize );
 
-		vec4 skinVertex = bindMatrix * vec4( transformed, 1.0 );
+		vec4 skinVertex = bindMatrix * vec4( position, 1.0 );
 
 		vec4 skinned = vec4( 0.0 );
 		skinned += boneMatX * skinVertex * weight.x;
@@ -40,7 +40,7 @@ export const ApplySkinning = new FunctionNode( `
 		skinned += boneMatZ * skinVertex * weight.z;
 		skinned += boneMatW * skinVertex * weight.w;
 
-		return skinned;
+		return ( bindMatrixInverse * skinned ).xyz;
 
 	}`
 ).setIncludes( [ BoneMatrix ] );

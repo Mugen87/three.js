@@ -17,11 +17,24 @@ class TextureNode extends InputNode {
 		const type = this.getType( builder );
 
 		const textureProperty = super.generate( builder, type );
-		const uvSnippet = this.uv.build( builder, 'vec2' );
 
-		const textureCallSnippet = builder.getTexture( textureProperty, uvSnippet );
+		if ( output === 'texture2D' ) {
 
-		return builder.format( textureCallSnippet, type, output );
+			return textureProperty;
+
+		} else if ( output === 'sampler' ) {
+
+			return textureProperty + '_sampler';
+
+		} else {
+
+			const uvSnippet = this.uv.build( builder, 'vec2' );
+
+			const textureCallSnippet = builder.getTexture( textureProperty, uvSnippet );
+
+			return builder.format( textureCallSnippet, type, output );
+
+		}
 
 	}
 

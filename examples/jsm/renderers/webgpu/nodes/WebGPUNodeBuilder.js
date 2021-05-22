@@ -8,7 +8,7 @@ import { WebGPUNodeSampledTexture } from './WebGPUNodeSampledTexture.js';
 
 import NodeSlot from '../../nodes/core/NodeSlot.js';
 import NodeBuilder from '../../nodes/core/NodeBuilder.js';
-import SkinningNode from '../../nodes/accessors/SkinningNode.js';
+import SkinningPositionNode from '../../nodes/accessors/SkinningPositionNode.js';
 import MaterialNode from '../../nodes/accessors/MaterialNode.js';
 import ModelViewProjectionNode from '../../nodes/accessors/ModelViewProjectionNode.js';
 import LightContextNode from '../../nodes/lights/LightContextNode.js';
@@ -58,6 +58,12 @@ class WebGPUNodeBuilder extends NodeBuilder {
 
 			const mvpNode = new ModelViewProjectionNode();
 			const lightNode = material.lightNode;
+
+			if ( object.isSkinnedMesh === true ) {
+
+				mvpNode.position = new SkinningPositionNode( object );
+
+			}
 
 			if ( material.positionNode !== undefined ) {
 
@@ -116,16 +122,6 @@ class WebGPUNodeBuilder extends NodeBuilder {
 				const lightContextNode = new LightContextNode( lightNode );
 
 				this.addSlot( 'fragment', new NodeSlot( lightContextNode, 'LIGHT', 'vec3' ) );
-
-			}
-
-			//
-
-			if ( object.isSkinnedMesh === true ) {
-
-				const skinningNode = new SkinningNode( object );
-
-				this.addSlot( 'vertex', new NodeSlot( skinningNode, 'SKINNING', 'vec4' ) );
 
 			}
 
@@ -417,7 +413,7 @@ class WebGPUNodeBuilder extends NodeBuilder {
 
 			this.shaderStage = shaderStage;
 
-			keywords.include( this, this.nativeShader.fragmentShader );
+			keywords.include( this, this.nativeShader[ shaderStage + 'Shader' ] );
 
 		}
 
