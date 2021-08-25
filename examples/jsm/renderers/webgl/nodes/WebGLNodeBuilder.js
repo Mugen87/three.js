@@ -3,17 +3,17 @@ import NodeSlot from '../../nodes/core/NodeSlot.js';
 
 class WebGLNodeBuilder extends NodeBuilder {
 
-	constructor( material, renderer, properties ) {
+	constructor( object, renderer, properties ) {
 
-		super( material, renderer );
+		super( object, renderer );
 
 		this.properties = properties;
 
-		this._parseMaterial();
+		this._parseObject();
 
 	}
 
-	_parseMaterial() {
+	_parseObject() {
 
 		const material = this.material;
 
