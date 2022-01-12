@@ -1103,6 +1103,8 @@ function WebGLTextures( _gl, extensions, state, properties, capabilities, utils,
 
 		}
 
+		console.log( _gl.getFramebufferAttachmentParameter( _gl.FRAMEBUFFER, _gl.COLOR_ATTACHMENT0, _gl.FRAMEBUFFER_ATTACHMENT_COLOR_ENCODING ), _gl.SRGB );
+
 		state.bindFramebuffer( _gl.FRAMEBUFFER, null );
 
 	}

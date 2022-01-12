@@ -8,11 +8,38 @@
 	</head>
 	<body>
 
+		<script id="vertexShader" type="x-shader/x-vertex">
+
+			varying vec2 vUv;
+
+			void main()	{
+
+				vUv = uv;
+
+				gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
+
+			}
+
+		</script>
+
+		<script id="fragmentShader" type="x-shader/x-fragment">
+
+			varying vec2 vUv;
+			uniform sampler2D tDiffuse;
+
+			void main()	{
+
+				gl_FragColor = texture2D( tDiffuse, vUv );
+
+			}
+
+		</script>
+
 		<script type="module">
 
 			import * as THREE from '../build/three.module.js';
 
-			let camera, scene, renderer;
+			let camera, cameraFX, scene, sceneFX, renderer, renderTarget;
 			let mesh;
 
 			init();
@@ -26,6 +53,7 @@
 				scene = new THREE.Scene();
 
 				const texture = new THREE.TextureLoader().load( 'textures/crate.gif' );
+				texture.encoding = THREE.sRGBEncoding;
 
 				const geometry = new THREE.BoxGeometry( 200, 200, 200 );
 				const material = new THREE.MeshBasicMaterial( { map: texture } );
@@ -33,12 +61,29 @@
 				mesh = new THREE.Mesh( geometry, material );
 				scene.add( mesh );
 
-				renderer = new THREE.WebGLRenderer( { antialias: true } );
+				renderer = new THREE.WebGLRenderer();
 				renderer.setPixelRatio( window.devicePixelRatio );
 				renderer.setSize( window.innerWidth, window.innerHeight );
 				document.body.appendChild( renderer.domElement );
 
+				renderTarget = new THREE.WebGLRenderTarget( window.innerWidth * window.devicePixelRatio, window.innerHeight * window.devicePixelRatio );
+				renderTarget.texture.encoding = THREE.sRGBEncoding;
+
 				//
+
+				cameraFX = new THREE.OrthographicCamera( - 1, 1, 1, - 1, 0, 1 );
+				sceneFX = new THREE.Scene();
+
+				const geometryFX = new THREE.PlaneGeometry( 2, 2 );
+				const materialFX = new THREE.ShaderMaterial( {
+					uniforms: { tDiffuse: { value: renderTarget.texture } },
+					vertexShader: document.getElementById( 'vertexShader' ).textContent,
+					fragmentShader: document.getElementById( 'fragmentShader' ).textContent
+
+				} );
+
+				const fullscreenQuad = new THREE.Mesh( geometryFX, materialFX );
+				sceneFX.add( fullscreenQuad );
 
 				window.addEventListener( 'resize', onWindowResize );
 
@@ -51,6 +96,8 @@
 
 				renderer.setSize( window.innerWidth, window.innerHeight );
 
+				renderTarget.setSize( window.innerWidth * window.devicePixelRatio, window.innerHeight * window.devicePixelRatio );
+
 			}
 
 			function animate() {
@@ -60,7 +107,11 @@
 				mesh.rotation.x += 0.005;
 				mesh.rotation.y += 0.01;
 
+				renderer.setRenderTarget( renderTarget );
 				renderer.render( scene, camera );
+				renderer.setRenderTarget( null );
+
+				renderer.render( sceneFX, cameraFX );
 
 			}
 
