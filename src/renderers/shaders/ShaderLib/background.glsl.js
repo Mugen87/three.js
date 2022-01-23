@@ -20,8 +20,5 @@ void main() {
 
 	gl_FragColor = texture2D( t2D, vUv );
 
-	#include <tonemapping_fragment>
-	#include <encodings_fragment>
-
 }
 `;

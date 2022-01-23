@@ -60,8 +60,6 @@ void main() {
 	outgoingLight = diffuseColor.rgb; // simple shader
 
 	#include <output_fragment>
-	#include <tonemapping_fragment>
-	#include <encodings_fragment>
 	#include <fog_fragment>
 	#include <premultiplied_alpha_fragment>
 

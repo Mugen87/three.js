@@ -33,7 +33,7 @@ class DirectionalLightHelper extends Object3D {
 			- size, size, 0
 		], 3 ) );
 
-		const material = new LineBasicMaterial( { fog: false, toneMapped: false } );
+		const material = new LineBasicMaterial( { fog: false } );
 
 		this.lightPlane = new Line( geometry, material );
 		this.add( this.lightPlane );

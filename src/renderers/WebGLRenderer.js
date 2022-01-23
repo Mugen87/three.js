@@ -27,6 +27,7 @@ import { WebGLClipping } from './webgl/WebGLClipping.js';
 import { WebGLCubeMaps } from './webgl/WebGLCubeMaps.js';
 import { WebGLCubeUVMaps } from './webgl/WebGLCubeUVMaps.js';
 import { WebGLExtensions } from './webgl/WebGLExtensions.js';
+import { WebGLFXManager } from './webgl/WebGLFXManager.js';
 import { WebGLGeometries } from './webgl/WebGLGeometries.js';
 import { WebGLIndexedBufferRenderer } from './webgl/WebGLIndexedBufferRenderer.js';
 import { WebGLInfo } from './webgl/WebGLInfo.js';
@@ -269,7 +270,7 @@ function WebGLRenderer( parameters = {} ) {
 	let properties, textures, cubemaps, cubeuvmaps, attributes, geometries, objects;
 	let programCache, materials, renderLists, renderStates, clipping, shadowMap;
 
-	let background, morphtargets, bufferRenderer, indexedBufferRenderer;
+	let background, morphtargets, bufferRenderer, indexedBufferRenderer, fxManager;
 
 	let utils, bindingStates;
 
@@ -305,6 +306,8 @@ function WebGLRenderer( parameters = {} ) {
 
 		bufferRenderer = new WebGLBufferRenderer( _gl, extensions, info, capabilities );
 		indexedBufferRenderer = new WebGLIndexedBufferRenderer( _gl, extensions, info, capabilities );
+
+		fxManager = new WebGLFXManager( _this, extensions, capabilities, _antialias );
 
 		info.programs = programCache.programs;
 
@@ -907,6 +910,15 @@ function WebGLRenderer( parameters = {} ) {
 
 		if ( _isContextLost === true ) return;
 
+		const renderToScreen = ( _currentRenderTarget === null || _currentRenderTarget.isXRRenderTarget === true );
+		const needsPostProcessing = ( this.outputEncoding !== LinearEncoding || this.toneMapping !== NoToneMapping );
+
+		if ( renderToScreen === true && needsPostProcessing === true ) {
+
+			fxManager.prepare();
+
+		}
+
 		// update scene graph
 
 		if ( scene.autoUpdate === true ) scene.updateMatrixWorld();
@@ -1045,6 +1057,12 @@ function WebGLRenderer( parameters = {} ) {
 		} else {
 
 			currentRenderList = null;
+
+		}
+
+		if ( renderToScreen === true && needsPostProcessing === true ) {
+
+			fxManager.render();
 
 		}
 
@@ -1393,7 +1411,6 @@ function WebGLRenderer( parameters = {} ) {
 
 		const materialProperties = properties.get( material );
 
-		materialProperties.outputEncoding = parameters.outputEncoding;
 		materialProperties.instancing = parameters.instancing;
 		materialProperties.skinning = parameters.skinning;
 		materialProperties.morphTargets = parameters.morphTargets;
@@ -1403,7 +1420,6 @@ function WebGLRenderer( parameters = {} ) {
 		materialProperties.numIntersection = parameters.numClipIntersection;
 		materialProperties.vertexAlphas = parameters.vertexAlphas;
 		materialProperties.vertexTangents = parameters.vertexTangents;
-		materialProperties.toneMapping = parameters.toneMapping;
 
 	}
 
@@ -1415,14 +1431,12 @@ function WebGLRenderer( parameters = {} ) {
 
 		const fog = scene.fog;
 		const environment = material.isMeshStandardMaterial ? scene.environment : null;
-		const encoding = ( _currentRenderTarget === null ) ? _this.outputEncoding : ( _currentRenderTarget.isXRRenderTarget === true ? _currentRenderTarget.texture.encoding : LinearEncoding );
 		const envMap = ( material.isMeshStandardMaterial ? cubeuvmaps : cubemaps ).get( material.envMap || environment );
 		const vertexAlphas = material.vertexColors === true && !! geometry.attributes.color && geometry.attributes.color.itemSize === 4;
 		const vertexTangents = !! material.normalMap && !! geometry.attributes.tangent;
 		const morphTargets = !! geometry.morphAttributes.position;
 		const morphNormals = !! geometry.morphAttributes.normal;
 		const morphTargetsCount = !! geometry.morphAttributes.position ? geometry.morphAttributes.position.length : 0;
-		const toneMapping = material.toneMapped ? _this.toneMapping : NoToneMapping;
 
 		const materialProperties = properties.get( material );
 		const lights = currentRenderState.state.lights;
@@ -1451,10 +1465,6 @@ function WebGLRenderer( parameters = {} ) {
 		if ( material.version === materialProperties.__version ) {
 
 			if ( materialProperties.needsLights && ( materialProperties.lightsStateVersion !== lights.state.version ) ) {
-
-				needsProgramChange = true;
-
-			} else if ( materialProperties.outputEncoding !== encoding ) {
 
 				needsProgramChange = true;
 
@@ -1501,10 +1511,6 @@ function WebGLRenderer( parameters = {} ) {
 				needsProgramChange = true;
 
 			} else if ( materialProperties.morphNormals !== morphNormals ) {
-
-				needsProgramChange = true;
-
-			} else if ( materialProperties.toneMapping !== toneMapping ) {
 
 				needsProgramChange = true;
 
@@ -1669,8 +1675,6 @@ function WebGLRenderer( parameters = {} ) {
 		}
 
 		if ( refreshMaterial ) {
-
-			p_uniforms.setValue( _gl, 'toneMappingExposure', _this.toneMappingExposure );
 
 			if ( materialProperties.needsLights ) {
 

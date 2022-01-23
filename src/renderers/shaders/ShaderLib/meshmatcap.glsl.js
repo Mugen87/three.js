@@ -96,8 +96,6 @@ void main() {
 	vec3 outgoingLight = diffuseColor.rgb * matcapColor.rgb;
 
 	#include <output_fragment>
-	#include <tonemapping_fragment>
-	#include <encodings_fragment>
 	#include <fog_fragment>
 	#include <premultiplied_alpha_fragment>
 	#include <dithering_fragment>

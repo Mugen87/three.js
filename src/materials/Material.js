@@ -68,8 +68,6 @@ class Material extends EventDispatcher {
 
 		this.visible = true;
 
-		this.toneMapped = true;
-
 		this.userData = {};
 
 		this.version = 0;
@@ -350,8 +348,6 @@ class Material extends EventDispatcher {
 
 		if ( this.visible === false ) data.visible = false;
 
-		if ( this.toneMapped === false ) data.toneMapped = false;
-
 		if ( JSON.stringify( this.userData ) !== '{}' ) data.userData = this.userData;
 
 		// TODO: Copied from Object3D.toJSON
@@ -463,8 +459,6 @@ class Material extends EventDispatcher {
 		this.premultipliedAlpha = source.premultipliedAlpha;
 
 		this.visible = source.visible;
-
-		this.toneMapped = source.toneMapped;
 
 		this.userData = JSON.parse( JSON.stringify( source.userData ) );
 

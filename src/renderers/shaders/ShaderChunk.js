@@ -23,7 +23,6 @@ import displacementmap_pars_vertex from './ShaderChunk/displacementmap_pars_vert
 import displacementmap_vertex from './ShaderChunk/displacementmap_vertex.glsl.js';
 import emissivemap_fragment from './ShaderChunk/emissivemap_fragment.glsl.js';
 import emissivemap_pars_fragment from './ShaderChunk/emissivemap_pars_fragment.glsl.js';
-import encodings_fragment from './ShaderChunk/encodings_fragment.glsl.js';
 import encodings_pars_fragment from './ShaderChunk/encodings_pars_fragment.glsl.js';
 import envmap_fragment from './ShaderChunk/envmap_fragment.glsl.js';
 import envmap_common_pars_fragment from './ShaderChunk/envmap_common_pars_fragment.glsl.js';
@@ -89,7 +88,6 @@ import skinning_vertex from './ShaderChunk/skinning_vertex.glsl.js';
 import skinnormal_vertex from './ShaderChunk/skinnormal_vertex.glsl.js';
 import specularmap_fragment from './ShaderChunk/specularmap_fragment.glsl.js';
 import specularmap_pars_fragment from './ShaderChunk/specularmap_pars_fragment.glsl.js';
-import tonemapping_fragment from './ShaderChunk/tonemapping_fragment.glsl.js';
 import tonemapping_pars_fragment from './ShaderChunk/tonemapping_pars_fragment.glsl.js';
 import transmission_fragment from './ShaderChunk/transmission_fragment.glsl.js';
 import transmission_pars_fragment from './ShaderChunk/transmission_pars_fragment.glsl.js';
@@ -144,7 +142,6 @@ export const ShaderChunk = {
 	displacementmap_vertex: displacementmap_vertex,
 	emissivemap_fragment: emissivemap_fragment,
 	emissivemap_pars_fragment: emissivemap_pars_fragment,
-	encodings_fragment: encodings_fragment,
 	encodings_pars_fragment: encodings_pars_fragment,
 	envmap_fragment: envmap_fragment,
 	envmap_common_pars_fragment: envmap_common_pars_fragment,
@@ -210,7 +207,6 @@ export const ShaderChunk = {
 	skinnormal_vertex: skinnormal_vertex,
 	specularmap_fragment: specularmap_fragment,
 	specularmap_pars_fragment: specularmap_pars_fragment,
-	tonemapping_fragment: tonemapping_fragment,
 	tonemapping_pars_fragment: tonemapping_pars_fragment,
 	transmission_fragment: transmission_fragment,
 	transmission_pars_fragment: transmission_pars_fragment,

@@ -18,7 +18,7 @@ class Box3Helper extends LineSegments {
 
 		geometry.setAttribute( 'position', new Float32BufferAttribute( positions, 3 ) );
 
-		super( geometry, new LineBasicMaterial( { color: color, toneMapped: false } ) );
+		super( geometry, new LineBasicMaterial( { color: color } ) );
 
 		this.box = box;
 

@@ -17,7 +17,7 @@ class BoxHelper extends LineSegments {
 		geometry.setIndex( new BufferAttribute( indices, 1 ) );
 		geometry.setAttribute( 'position', new BufferAttribute( positions, 3 ) );
 
-		super( geometry, new LineBasicMaterial( { color: color, toneMapped: false } ) );
+		super( geometry, new LineBasicMaterial( { color: color } ) );
 
 		this.object = object;
 		this.type = 'BoxHelper';

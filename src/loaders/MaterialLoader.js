@@ -134,8 +134,6 @@ class MaterialLoader extends Loader {
 
 		if ( json.visible !== undefined ) material.visible = json.visible;
 
-		if ( json.toneMapped !== undefined ) material.toneMapped = json.toneMapped;
-
 		if ( json.userData !== undefined ) material.userData = json.userData;
 
 		if ( json.vertexColors !== undefined ) {

@@ -31,8 +31,5 @@ void main() {
 	gl_FragColor = envColor;
 	gl_FragColor.a *= opacity;
 
-	#include <tonemapping_fragment>
-	#include <encodings_fragment>
-
 }
 `;
