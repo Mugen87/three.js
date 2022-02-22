@@ -81,6 +81,7 @@
 				dirLight.shadow.camera.right = 2;
 				dirLight.shadow.camera.near = 0.1;
 				dirLight.shadow.camera.far = 40;
+				dirLight.lookAt( 0, 0, 0 );
 				scene.add( dirLight );
 
 				// scene.add( new THREE.CameraHelper( dirLight.shadow.camera ) );

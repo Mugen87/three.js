@@ -117,29 +117,6 @@
 			[page:SpotLightShadow]用与计算此光照的阴影。
 		</p>
 
-
-		<h3>[property:Object3D target]</h3>
-		<p>
-				聚光灯的方向是从它的位置到目标位置.默认的目标位置为原点 *(0,0,0)*。<br />
-				注意: 对于目标的位置，要将其更改为除缺省值之外的任何位置，它必须被添加到 [page:Scene scene]
-				场景中去。
-			<code>
-				scene.add( light.target );
-			</code>
-
-			这使得属性target中的 [page:Object3D.matrixWorld matrixWorld] 会每帧自动更新。<br /><br />
-
-			它也可以设置target为场景中的其他对象(任意拥有 [page:Object3D.position position] 属性的对象), 示例如下:
-			<code>
-const targetObject = new THREE.Object3D();
-scene.add(targetObject);
-
-light.target = targetObject;
-			</code>
-			完成上述操作后，聚光灯现在就可以追踪到目标对像了。
-		</p>
-
-
 		<h2>方法（Methods）</h2>
 
 		<p>公共方法请查看基类 [page:Light Light]。</p>

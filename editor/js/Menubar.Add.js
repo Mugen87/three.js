@@ -348,9 +348,9 @@ function MenubarAdd( editor ) {
 
 		const light = new THREE.DirectionalLight( color, intensity );
 		light.name = 'DirectionalLight';
-		light.target.name = 'DirectionalLight Target';
 
 		light.position.set( 5, 10, 7.5 );
+		light.lookAt( 0, 0, 0 );
 
 		editor.execute( new AddObjectCommand( editor, light ) );
 
@@ -412,9 +412,9 @@ function MenubarAdd( editor ) {
 
 		const light = new THREE.SpotLight( color, intensity, distance, angle, penumbra );
 		light.name = 'SpotLight';
-		light.target.name = 'SpotLight Target';
 
 		light.position.set( 5, 10, 7.5 );
+		light.lookAt( 0, 0, 0 );
 
 		editor.execute( new AddObjectCommand( editor, light ) );
 

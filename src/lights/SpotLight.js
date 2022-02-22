@@ -1,6 +1,5 @@
 import { Light } from './Light.js';
 import { SpotLightShadow } from './SpotLightShadow.js';
-import { Object3D } from '../core/Object3D.js';
 
 class SpotLight extends Light {
 
@@ -9,11 +8,6 @@ class SpotLight extends Light {
 		super( color, intensity );
 
 		this.type = 'SpotLight';
-
-		this.position.copy( Object3D.DefaultUp );
-		this.updateMatrix();
-
-		this.target = new Object3D();
 
 		this.distance = distance;
 		this.angle = angle;
@@ -53,8 +47,6 @@ class SpotLight extends Light {
 		this.angle = source.angle;
 		this.penumbra = source.penumbra;
 		this.decay = source.decay;
-
-		this.target = source.target.clone();
 
 		this.shadow = source.shadow.clone();
 

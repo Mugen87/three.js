@@ -1,13 +1,8 @@
-import { Vector3 } from '../math/Vector3.js';
 import { Object3D } from '../core/Object3D.js';
 import { Line } from '../objects/Line.js';
 import { Float32BufferAttribute } from '../core/BufferAttribute.js';
 import { BufferGeometry } from '../core/BufferGeometry.js';
 import { LineBasicMaterial } from '../materials/LineBasicMaterial.js';
-
-const _v1 = /*@__PURE__*/ new Vector3();
-const _v2 = /*@__PURE__*/ new Vector3();
-const _v3 = /*@__PURE__*/ new Vector3();
 
 class DirectionalLightHelper extends Object3D {
 
@@ -39,7 +34,7 @@ class DirectionalLightHelper extends Object3D {
 		this.add( this.lightPlane );
 
 		geometry = new BufferGeometry();
-		geometry.setAttribute( 'position', new Float32BufferAttribute( [ 0, 0, 0, 0, 0, 1 ], 3 ) );
+		geometry.setAttribute( 'position', new Float32BufferAttribute( [ 0, 0, 0, 0, 0, 2 ], 3 ) );
 
 		this.targetLine = new Line( geometry, material );
 		this.add( this.targetLine );
@@ -59,12 +54,6 @@ class DirectionalLightHelper extends Object3D {
 
 	update() {
 
-		_v1.setFromMatrixPosition( this.light.matrixWorld );
-		_v2.setFromMatrixPosition( this.light.target.matrixWorld );
-		_v3.subVectors( _v2, _v1 );
-
-		this.lightPlane.lookAt( _v2 );
-
 		if ( this.color !== undefined ) {
 
 			this.lightPlane.material.color.set( this.color );
@@ -76,9 +65,6 @@ class DirectionalLightHelper extends Object3D {
 			this.targetLine.material.color.copy( this.light.color );
 
 		}
-
-		this.targetLine.lookAt( _v2 );
-		this.targetLine.scale.z = _v3.length();
 
 	}
 

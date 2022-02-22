@@ -139,33 +139,6 @@
 			A [page:SpotLightShadow] used to calculate shadows for this light.
 		</p>
 
-
-		<h3>[property:Object3D target]</h3>
-		<p>
-			The Spotlight points from its [page:.position position] to target.position. The default
-			position of the target is *(0, 0, 0)*.<br />
-
-			*Note*: For the target's position to be changed to anything other than the default,
-			it must be added to the [page:Scene scene] using
-			<code>
-				scene.add( light.target );
-			</code>
-
-			This is so that the target's [page:Object3D.matrixWorld matrixWorld] gets automatically
-			updated each frame.<br /><br />
-
-			It is also possible to set the target to be another object in the scene (anything with a
-			[page:Object3D.position position] property), like so:
-			<code>
-const targetObject = new THREE.Object3D();
-scene.add(targetObject);
-
-light.target = targetObject;
-			</code>
-			The spotlight will now track the target object.
-		</p>
-
-
 		<h2>Methods</h2>
 
 		<p>See the base [page:Light Light] class for common methods.</p>

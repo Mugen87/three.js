@@ -5,8 +5,9 @@ import { Vector4 } from '../math/Vector4.js';
 import { Frustum } from '../math/Frustum.js';
 
 const _projScreenMatrix = /*@__PURE__*/ new Matrix4();
-const _lightPositionWorld = /*@__PURE__*/ new Vector3();
-const _lookTarget = /*@__PURE__*/ new Vector3();
+
+const _v1 = /*@__PURE__*/ new Vector3();
+const _cameraConvention = new Vector3( - 1, 1, - 1 );
 
 class LightShadow {
 
@@ -58,12 +59,9 @@ class LightShadow {
 		const shadowCamera = this.camera;
 		const shadowMatrix = this.matrix;
 
-		_lightPositionWorld.setFromMatrixPosition( light.matrixWorld );
-		shadowCamera.position.copy( _lightPositionWorld );
-
-		_lookTarget.setFromMatrixPosition( light.target.matrixWorld );
-		shadowCamera.lookAt( _lookTarget );
-		shadowCamera.updateMatrixWorld();
+		shadowCamera.matrixWorld.copy( light.matrixWorld ).scale( _cameraConvention );
+		shadowCamera.matrixWorldInverse.copy( shadowCamera.matrixWorld ).invert();
+		shadowCamera.matrixWorldNeedsUpdate = false;
 
 		_projScreenMatrix.multiplyMatrices( shadowCamera.projectionMatrix, shadowCamera.matrixWorldInverse );
 		this._frustum.setFromProjectionMatrix( _projScreenMatrix );

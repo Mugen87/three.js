@@ -273,7 +273,7 @@ class Object3D extends EventDispatcher {
 
 		_position.setFromMatrixPosition( this.matrixWorld );
 
-		if ( this.isCamera || this.isLight ) {
+		if ( this.isCamera ) {
 
 			_m1.lookAt( _position, _target, this.up );
 

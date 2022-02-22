@@ -647,10 +647,18 @@ function SidebarObject( editor ) {
 
 	function updateTransformRows( object ) {
 
-		if ( object.isLight ||
-		   ( object.isObject3D && object.userData.targetInverse ) ) {
+		if ( object.isLight || ( object.isObject3D && object.userData.targetInverse ) ) {
 
-			objectRotationRow.setDisplay( 'none' );
+			if ( object.isDirectionalLight || object.isSpotLight ) {
+
+				objectRotationRow.setDisplay( '' );
+
+			} else {
+
+				objectRotationRow.setDisplay( 'none' );
+
+			}
+
 			objectScaleRow.setDisplay( 'none' );
 
 		} else {
