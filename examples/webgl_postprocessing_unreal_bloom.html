@@ -11,6 +11,9 @@
 			margin-left: auto;
 			margin-right: auto;
 		}
+		body {
+			background-image: url(./textures/crate.gif);
+		}
 		</style>
 	</head>
 	<body>
@@ -70,9 +73,10 @@
 
 				clock = new THREE.Clock();
 
-				renderer = new THREE.WebGLRenderer( { antialias: true } );
+				renderer = new THREE.WebGLRenderer();
 				renderer.setPixelRatio( window.devicePixelRatio );
 				renderer.setSize( window.innerWidth, window.innerHeight );
+				renderer.setClearColor( 0x000000, 0 );
 				renderer.toneMapping = THREE.ReinhardToneMapping;
 				container.appendChild( renderer.domElement );
 
