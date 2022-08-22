@@ -42,11 +42,12 @@
 				'cat/druidcat2.m2',
 				'desk/7ne_druid_worktable01.m2',
 				'flower/7ne_nightelf_flower01.m2',
+				'flower2/bush_peacebloom01.m2'
 			];
 
 			let camera, scene, renderer, controls, loader;
 			
-			let m2Mesh;
+			let m2Scene;
 			
 			init();
 			render();
@@ -90,9 +91,9 @@
 				const gui = new GUI();
 				gui.add( params, 'asset', assets ).onChange( function ( value ) {
 
-					if ( m2Mesh ) {
+					if ( m2Scene ) {
 
-						m2Mesh.traverse( function ( object ) {
+						m2Scene.traverse( function ( object ) {
 
 							if ( object.material ) object.material.dispose();
 							if ( object.material && object.material.map ) object.material.map.dispose();
@@ -100,7 +101,7 @@
 
 						} );
 
-						scene.remove( m2Mesh );
+						scene.remove( m2Scene );
 
 					}
 
@@ -112,13 +113,13 @@
 
 			function loadAsset( asset ) {
 
-				loader.load( 'models/m2/' + asset, function ( mesh ) {
+				loader.load( 'models/m2/' + asset, function ( m2 ) {
 
-					mesh.rotation.x = - 0.5 * Math.PI;
-					mesh.rotation.z = - 0.5 * Math.PI;
+					m2.rotation.x = - 0.5 * Math.PI;
+					m2.rotation.z = - 0.5 * Math.PI;
 
-					m2Mesh = mesh;
-					scene.add( m2Mesh );
+					m2Scene = m2;
+					scene.add( m2Scene );
 					render();
 
 				} );

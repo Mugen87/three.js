@@ -5,6 +5,7 @@ import {
 	FileLoader,
 	Float32BufferAttribute,
 	FrontSide,
+	Group,
 	Loader,
 	LoaderUtils,
 	Mesh,
@@ -102,33 +103,6 @@ class M2Loader extends Loader {
 
 		}
 
-		// skins
-
-		if ( header.version <= M2_VERSION_THE_BURNING_CRUSADE ) {
-
-			// TODO: read embedded skin data
-
-		} else {
-
-			// TODO ignore header.numSkinProfiles for now and just load the default skin
-
-			const url = path.substring( 0, path.lastIndexOf( '.' ) ) + '00.skin';
-			const loader = new M2SkinLoader( this.manager );
-
-			const promise = new Promise( function ( resolve, reject ) {
-
-				loader.load( url, resolve, undefined, function () {
-
-					reject( new Error( 'THREE.M2Loader: Failed to load skin file: ' + url ) );
-
-				} );
-
-			} );
-
-			promises.push( promise );
-
-		}
-
 		// data
 
 		const name = this._readName( parser, header );
@@ -165,26 +139,57 @@ class M2Loader extends Loader {
 
 		// build
 
-		Promise.all( promises ).then( ( data ) => {
+		Promise.all( promises ).then( ( textures ) => {
 
-			const skinData = data[ 0 ];
-			const texture = data[ 1 ]; // TODO: Figure out how to use more than one texture
+			// skins
 
-			const mesh = this._build( name, vertices, materials, skinData );
-			mesh.material.map = texture;
-			onLoad( mesh );
+			if ( header.version <= M2_VERSION_THE_BURNING_CRUSADE ) {
 
+				// TODO: read embedded skin data
+
+			} else {
+
+				// TODO ignore header.numSkinProfiles for now and just load the default skin
+
+				const url = path.substring( 0, path.lastIndexOf( '.' ) ) + '00.skin';
+				const loader = new M2SkinLoader( this.manager );
+				loader.setHeader( header );
+
+				const promise = new Promise( function ( resolve, reject ) {
+
+					loader.load( url, resolve, undefined, function () {
+
+						reject( new Error( 'THREE.M2Loader: Failed to load skin file: ' + url ) );
+
+					} );
+
+				} );
+
+				promise.then( skinData => {
+
+					const group = this._build( name, vertices, materials, skinData, textures );
+					onLoad( group );
+
+				} ).catch( onError );
+
+			}
 
 		} ).catch( onError );
 
 	}
 
-	_build( name, vertices, materials, skinData ) {
+	_build( name, vertices, materials, skinData, textures ) {
+
+		const group = new Group();
 
 		// geometry
 
 		const localVertexList = skinData.localVertexList;
 		const indices = skinData.indices;
+		const submeshes = skinData.submeshes;
+		const batches = skinData.batches;
+
+		// buffer attributes
 
 		const position = [];
 		const normal = [];
@@ -203,32 +208,62 @@ class M2Loader extends Loader {
 
 		}
 
-		const geometry = new BufferGeometry();
-		geometry.setAttribute( 'position', new Float32BufferAttribute( position, 3 ) );
-		geometry.setAttribute( 'normal', new Float32BufferAttribute( normal, 3 ) );
-		geometry.setAttribute( 'uv', new Float32BufferAttribute( uv, 2 ) );
-		geometry.setIndex( indices );
+		const positionAttribute = new Float32BufferAttribute( position, 3 );
+		const normalAttribute = new Float32BufferAttribute( normal, 3 );
+		const uvAttribute = new Float32BufferAttribute( uv, 2 );
 
-		// material
+		// geometries
 
-		const materialDefinition = materials[ 0 ];
-		const materialFlags = materialDefinition.flags;
+		const geometries = [];
 
-		// TODO Honor blendingMode and remaining material flags
+		for ( let i = 0; i < submeshes.length; i ++ ) {
 
-		const material = ( materialFlags & M2_MATERIAL_UNLIT ) ? new MeshBasicMaterial() : new MeshLambertMaterial();
+			const submesh = submeshes[ i ];
 
-		material.fog = ( materialFlags & M2_MATERIAL_UNFOGGED ) ? false : true;
-		material.side = ( materialFlags & M2_MATERIAL_TWO_SIDED ) ? DoubleSide : FrontSide;
+			const index = indices.slice( submesh.indexStart, submesh.indexStart + submesh.indexCount );
 
-		material.alphaTest = 0.5; // TODO Can probably be removed when blending modes are implemented
+			const geometry = new BufferGeometry();
+			geometry.setAttribute( 'position', positionAttribute );
+			geometry.setAttribute( 'normal', normalAttribute );
+			geometry.setAttribute( 'uv', uvAttribute );
+			geometry.setIndex( index );
 
-		// mesh
+			geometries.push( geometry );
 
-		const mesh = new Mesh( geometry, material );
-		mesh.name = name;
+		}
 
-		return mesh;
+		// meshes
+
+		for ( let i = 0; i < batches.length; i ++ ) {
+
+			const batch = batches[ i ];
+
+			const materialDefinition = materials[ batch.materialIndex ];
+			const materialFlags = materialDefinition.flags;
+
+			// TODO Honor blendingMode and remaining material flags
+
+			const material = ( materialFlags & M2_MATERIAL_UNLIT ) ? new MeshBasicMaterial() : new MeshLambertMaterial();
+
+			material.fog = ( materialFlags & M2_MATERIAL_UNFOGGED ) ? false : true;
+			material.side = ( materialFlags & M2_MATERIAL_TWO_SIDED ) ? DoubleSide : FrontSide;
+
+			material.alphaTest = 0.5; // It seems alpha testing is enabled for all M2 assets rendered by WoW
+
+			material.map = textures[ batch.textureComboIndex ];
+
+			// mesh
+
+			const geometry = geometries[ i ];
+
+			const mesh = new Mesh( geometry, material );
+			group.add( mesh );
+
+		}
+
+		group.name = name;
+
+		return group;
 
 	}
 
@@ -311,10 +346,12 @@ class M2Loader extends Loader {
 
 		for ( let i = 0; i < length; i ++ ) {
 
-			materials.push( {
-				flags: parser.readUInt16(),
-				blendingMode: parser.readUInt16()
-			} );
+			const material = new M2Material();
+
+			material.flags = parser.readUInt16();
+			material.blendingMode = parser.readUInt16();
+
+			materials.push( material );
 
 		}
 
@@ -411,33 +448,33 @@ class M2Loader extends Loader {
 
 		const vertex = new M2Vertex();
 
-		vertex.pos.x = parser.readFloat();
-		vertex.pos.y = parser.readFloat();
-		vertex.pos.z = parser.readFloat();
+		vertex.pos.x = parser.readFloat32();
+		vertex.pos.y = parser.readFloat32();
+		vertex.pos.z = parser.readFloat32();
 
 		vertex.boneWeights.push(
-			parser.readByte(),
-			parser.readByte(),
-			parser.readByte(),
-			parser.readByte()
+			parser.readUInt8(),
+			parser.readUInt8(),
+			parser.readUInt8(),
+			parser.readUInt8()
 		);
 
 		vertex.boneIndices.push(
-			parser.readByte(),
-			parser.readByte(),
-			parser.readByte(),
-			parser.readByte()
+			parser.readUInt8(),
+			parser.readUInt8(),
+			parser.readUInt8(),
+			parser.readUInt8()
 		);
 
-		vertex.normal.x = parser.readFloat();
-		vertex.normal.y = parser.readFloat();
-		vertex.normal.z = parser.readFloat();
+		vertex.normal.x = parser.readFloat32();
+		vertex.normal.y = parser.readFloat32();
+		vertex.normal.z = parser.readFloat32();
 
-		vertex.texCoords[ 0 ].x = parser.readFloat();
-		vertex.texCoords[ 0 ].y = parser.readFloat();
+		vertex.texCoords[ 0 ].x = parser.readFloat32();
+		vertex.texCoords[ 0 ].y = parser.readFloat32();
 
-		vertex.texCoords[ 1 ].x = parser.readFloat();
-		vertex.texCoords[ 1 ].y = parser.readFloat();
+		vertex.texCoords[ 1 ].x = parser.readFloat32();
+		vertex.texCoords[ 1 ].y = parser.readFloat32();
 
 		return vertex;
 
@@ -459,7 +496,7 @@ class M2Loader extends Loader {
 
 // const M2_VERSION_CLASSIC = 256;
 const M2_VERSION_THE_BURNING_CRUSADE = 263;
-// const M2_VERSION_WRATH_OF_THE_LICH_KING = 264;
+const M2_VERSION_WRATH_OF_THE_LICH_KING = 264;
 // const M2_VERSION_CATACLYSM = 272;
 // const M2_VERSION_MISTS_OF_PANDARIA = 272;
 // const M2_VERSION_WARLORDS_OF_DRAENOR = 272;
@@ -480,6 +517,14 @@ class M2SkinLoader extends Loader {
 	constructor( manager ) {
 
 		super( manager );
+
+		this.header = null;
+
+	}
+
+	setHeader( header ) {
+
+		this.header = header;
 
 	}
 
@@ -519,12 +564,17 @@ class M2SkinLoader extends Loader {
 	parse( buffer ) {
 
 		const parser = new BinaryParser( buffer );
+		const header = this.header;
 
-		const magic = parser.readString( 4 );
+		if ( header.version >= M2_VERSION_WRATH_OF_THE_LICH_KING ) {
 
-		if ( magic !== 'SKIN' ) {
+			const magic = parser.readString( 4 );
 
-			throw new Error( 'THREE.M2SkinLoader: Invalid magic data' );
+			if ( magic !== 'SKIN' ) {
+
+				throw new Error( 'THREE.M2SkinLoader: Invalid magic data' );
+
+			}
 
 		}
 
@@ -534,6 +584,12 @@ class M2SkinLoader extends Loader {
 		const verticesOffset = parser.readUInt32();
 		const indicesLength = parser.readUInt32();
 		const indicesOffset = parser.readUInt32();
+		const bonesLength = parser.readUInt32();
+		const bonesOffset = parser.readUInt32();
+		const submeshesLength = parser.readUInt32();
+		const submeshesOffset = parser.readUInt32();
+		const batchesLength = parser.readUInt32();
+		const batchesOffset = parser.readUInt32();
 
 		// local vertex list
 
@@ -559,9 +615,114 @@ class M2SkinLoader extends Loader {
 
 		}
 
-		// TODO read remaining skin data
+		// bones
 
-		return { localVertexList, indices };
+		const bones = [];
+
+		parser.moveTo( bonesOffset + 0x00 );
+
+		for ( let i = 0; i < bonesLength; i ++ ) {
+
+			// each entry represents 4 bone indices
+
+			bones.push( parser.readUInt8(), parser.readUInt8(), parser.readUInt8(), parser.readUInt8() );
+
+		}
+
+		// submeshes
+
+		const submeshes = [];
+
+		parser.moveTo( submeshesOffset + 0x00 );
+
+		for ( let i = 0; i < submeshesLength; i ++ ) {
+
+			const submesh = this._readSubmesh( parser, header );
+			submeshes.push( submesh );
+
+
+		}
+
+		// batches
+
+		const batches = [];
+
+		parser.moveTo( batchesOffset + 0x00 );
+
+		for ( let i = 0; i < batchesLength; i ++ ) {
+
+			const batch = this._readBatch( parser );
+			batches.push( batch );
+
+
+		}
+
+		//
+
+		const boneCountMax = parser.readUInt32();
+
+		// TODO read shadow batches
+
+		return { localVertexList, indices, bones, submeshes, batches, boneCountMax };
+
+	}
+
+	_readBatch( parser ) {
+
+		const batch = new M2Batch();
+
+		batch.flags = parser.readUInt8();
+		batch.priorityPlane = parser.readInt8();
+		batch.shaderId = parser.readUInt16();
+		batch.skinSectionIndex = parser.readUInt16();
+		batch.geosetIndex = parser.readUInt16();
+		batch.colorIndex = parser.readUInt16();
+		batch.materialIndex = parser.readUInt16();
+		batch.materialLayer = parser.readUInt16();
+		batch.textureCount = parser.readUInt16();
+		batch.textureComboIndex = parser.readUInt16();
+		batch.textureCoordComboIndex = parser.readUInt16();
+		batch.textureWeightComboIndex = parser.readUInt16();
+		batch.textureTransformComboIndex = parser.readUInt16();
+
+		return batch;
+
+	}
+
+	_readSubmesh( parser, header ) {
+
+		const submesh = new M2SkinSection();
+
+		submesh.skinSectionId = parser.readUInt16();
+		submesh.Level = parser.readUInt16();
+		submesh.vertexStart = parser.readUInt16();
+		submesh.vertexCount = parser.readUInt16();
+		submesh.indexStart = parser.readUInt16();
+		submesh.indexCount = parser.readUInt16();
+		submesh.boneCount = parser.readUInt16();
+		submesh.boneComboIndex = parser.readUInt16();
+		submesh.boneInfluences = parser.readUInt16();
+		submesh.centerBoneIndex = parser.readUInt16();
+
+		submesh.centerPosition.set(
+			parser.readFloat32(),
+			parser.readFloat32(),
+			parser.readFloat32()
+		);
+
+		if ( header.version >= M2_VERSION_THE_BURNING_CRUSADE ) {
+
+			submesh.sortCenterPosition.set(
+				parser.readFloat32(),
+				parser.readFloat32(),
+				parser.readFloat32()
+			);
+
+			submesh.sortRadius = parser.readFloat32();
+
+		}
+
+		return submesh;
 
 	}
 
@@ -628,10 +789,10 @@ class BLPLoader extends Loader {
 		const header = {};
 
 		header.version = parser.readUInt32();
-		header.colorEncoding = parser.readByte();
-		header.alphaSize = parser.readByte();
-		header.preferredFormat = parser.readByte();
-		header.hasMips = parser.readByte();
+		header.colorEncoding = parser.readUInt8();
+		header.alphaSize = parser.readUInt8();
+		header.preferredFormat = parser.readUInt8();
+		header.hasMips = parser.readUInt8();
 		header.width = parser.readUInt32();
 		header.height = parser.readUInt32();
 
@@ -761,17 +922,17 @@ class BinaryParser {
 
 	}
 
-	readByte() {
-
-		return this.view.getUint8( this.offset ++ );
-
-	}
-
-	readFloat() {
+	readFloat32() {
 
 		const float = this.view.getFloat32( this.offset, true );
 		this.offset += 4;
 		return float;
+
+	}
+
+	readInt8() {
+
+		return this.view.getInt8( this.offset ++ );
 
 	}
 
@@ -781,11 +942,17 @@ class BinaryParser {
 
 		for ( let i = 0; i < bytes; i ++ ) {
 
-			string += String.fromCharCode( this.readByte() );
+			string += String.fromCharCode( this.readUInt8() );
 
 		}
 
 		return string;
+
+	}
+
+	readUInt8() {
+
+		return this.view.getUint8( this.offset ++ );
 
 	}
 
@@ -821,15 +988,56 @@ class BinaryParser {
 
 // chunks
 
-class M2Vertex {
+class M2Batch {
 
 	constructor() {
 
-		this.pos = new Vector3();
-		this.boneWeights = [];
-		this.boneIndices = [];
-		this.normal = new Vector3();
-		this.texCoords = [ new Vector2(), new Vector2() ];
+		this.flags = 0;
+		this.priorityPlane = 0;
+		this.shader_id = 0;
+		this.skinSectionIndex = 0;
+		this.geosetIndex = 0;
+		this.colorIndex = 0;
+		this.materialIndex = 0;
+		this.materialLayer = 0;
+		this.textureCount = 0;
+		this.textureComboIndex = 0;
+		this.textureCoordComboIndex = 0;
+		this.textureWeightComboIndex = 0;
+		this.textureTransformComboIndex = 0;
+
+	}
+
+}
+
+class M2Material {
+
+	constructor() {
+
+		this.flags = 0;
+		this.blendingMode = 0;
+
+	}
+
+}
+
+class M2SkinSection {
+
+	constructor() {
+
+		this.skinSectionId = 0;
+		this.Level = 0;
+		this.vertexStart = 0;
+		this.vertexCount = 0;
+		this.indexStart = 0;
+		this.indexCount = 0;
+		this.boneCount = 0;
+		this.boneComboIndex = 0;
+		this.boneInfluences = 0;
+		this.centerBoneIndex = 0;
+		this.centerPosition = new Vector3();
+		this.sortCenterPosition = new Vector3();
+		this.sortRadius = 0;
 
 	}
 
@@ -847,5 +1055,19 @@ class M2Texture {
 
 }
 
+
+class M2Vertex {
+
+	constructor() {
+
+		this.pos = new Vector3();
+		this.boneWeights = [];
+		this.boneIndices = [];
+		this.normal = new Vector3();
+		this.texCoords = [ new Vector2(), new Vector2() ];
+
+	}
+
+}
 
 export { M2Loader, M2SkinLoader, BLPLoader };
