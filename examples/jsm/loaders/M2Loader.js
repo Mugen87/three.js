@@ -109,6 +109,7 @@ class M2Loader extends Loader {
 		const name = this._readName( parser, header );
 		const vertices = this._readVertices( parser, header );
 		const textureDefinitions = this._readTextureDefinitions( parser, header );
+		const textureLookupTable = this._readTextureLookupTable( parser, header );
 		const materials = this._readMaterials( parser, header );
 
 		// textures
@@ -177,7 +178,7 @@ class M2Loader extends Loader {
 
 				promise.then( skinData => {
 
-					const group = this._build( name, vertices, materials, skinData, textures );
+					const group = this._build( name, vertices, materials, skinData, textures, textureLookupTable );
 					onLoad( group );
 
 				} ).catch( onError );
@@ -188,7 +189,7 @@ class M2Loader extends Loader {
 
 	}
 
-	_build( name, vertices, materials, skinData, textures ) {
+	_build( name, vertices, materials, skinData, textures, textureLookupTable ) {
 
 		const group = new Group();
 
@@ -284,7 +285,8 @@ class M2Loader extends Loader {
 
 			}
 
-			material.map = textures[ batch.textureComboIndex ];
+			const textureIndex = textureLookupTable[ batch.textureComboIndex ];
+			material.map = textures[ textureIndex ];
 
 			// mesh
 
@@ -463,6 +465,28 @@ class M2Loader extends Loader {
 		parser.restoreState();
 
 		return texture;
+
+	}
+
+	_readTextureLookupTable( parser, header ) {
+
+		const length = header.textureLookupTableLength;
+		const offset = header.textureLookupTableOffset;
+
+		parser.saveState();
+		parser.moveTo( offset );
+
+		const lookupTable = [];
+
+		for ( let i = 0; i < length; i ++ ) {
+
+			lookupTable.push( parser.readUInt16() );
+
+		}
+
+		parser.restoreState();
+
+		return lookupTable;
 
 	}
 
