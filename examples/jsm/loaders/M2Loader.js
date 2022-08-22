@@ -11,6 +11,7 @@ import {
 	Mesh,
 	MeshBasicMaterial,
 	MeshLambertMaterial,
+	RepeatWrapping,
 	RGBA_S3TC_DXT1_Format,
 	RGBA_S3TC_DXT3_Format,
 	RGBA_S3TC_DXT5_Format,
@@ -112,22 +113,28 @@ class M2Loader extends Loader {
 
 		// textures
 
+		const resourcePath = LoaderUtils.extractUrlBase( path );
+
 		const textureLoader = new BLPLoader( this.manager );
-		textureLoader.setPath( LoaderUtils.extractUrlBase( path ) );
+		textureLoader.setPath( resourcePath );
 
 		for ( let i = 0; i < textureDefinitions.length; i ++ ) {
 
-			let filename = textureDefinitions[ i ].filename;
+			const textureDefinition = textureDefinitions[ i ];
+			let filename = textureDefinition.filename;
 
 			if ( i === 0 && filename === '' ) filename = name + '.blp'; // if the first texture has an empty name, fallback on the .m2 name
 
-			const textureURL = filename.replace( /^.*[\\\/]/, '' ).toLowerCase();
+			const promise = new Promise( ( resolve, reject ) => {
 
-			const promise = new Promise( function ( resolve, reject ) {
+				const config = {
+					url: filename,
+					flags: textureDefinition.flags
+				};
 
-				textureLoader.load( textureURL, resolve, undefined, function () {
+				textureLoader.load( config, resolve, undefined, () => {
 
-					reject( new Error( 'THREE.M2Loader: Failed to load texture: ' + textureURL ) );
+					reject( new Error( 'THREE.M2Loader: Failed to load texture: ' + filename ) );
 
 				} );
 
@@ -137,7 +144,7 @@ class M2Loader extends Loader {
 
 		}
 
-		// build
+		// skins
 
 		Promise.all( promises ).then( ( textures ) => {
 
@@ -151,19 +158,22 @@ class M2Loader extends Loader {
 
 				// TODO ignore header.numSkinProfiles for now and just load the default skin
 
-				const url = path.substring( 0, path.lastIndexOf( '.' ) ) + '00.skin';
-				const loader = new M2SkinLoader( this.manager );
-				loader.setHeader( header );
+				const url = ( name + '00.skin' ).toLowerCase();
+				const skinLoader = new M2SkinLoader( this.manager );
+				skinLoader.setPath( resourcePath );
+				skinLoader.setHeader( header );
 
-				const promise = new Promise( function ( resolve, reject ) {
+				const promise = new Promise( ( resolve, reject ) => {
 
-					loader.load( url, resolve, undefined, function () {
+					skinLoader.load( url, resolve, undefined, () => {
 
 						reject( new Error( 'THREE.M2Loader: Failed to load skin file: ' + url ) );
 
 					} );
 
 				} );
+
+				// build
 
 				promise.then( skinData => {
 
@@ -240,21 +250,45 @@ class M2Loader extends Loader {
 
 			const materialDefinition = materials[ batch.materialIndex ];
 			const materialFlags = materialDefinition.flags;
+			const blendingMode = materialDefinition.blendingMode;
 
-			// TODO Honor blendingMode and remaining material flags
+			// TODO Honor remaining material flags and blending modes
 
 			const material = ( materialFlags & M2_MATERIAL_UNLIT ) ? new MeshBasicMaterial() : new MeshLambertMaterial();
 
 			material.fog = ( materialFlags & M2_MATERIAL_UNFOGGED ) ? false : true;
 			material.side = ( materialFlags & M2_MATERIAL_TWO_SIDED ) ? DoubleSide : FrontSide;
+			material.depthTest = ( materialFlags & M2_MATERIAL_DEPTH_TEST ) ? false : true;
+			material.depthWrite = ( materialFlags & M2_MATERIAL_DEPTH_WRITE ) ? false : true;
 
-			material.alphaTest = 0.5; // It seems alpha testing is enabled for all M2 assets rendered by WoW
+			switch ( blendingMode ) {
+
+				case M2_BLEND_OPAQUE:
+					material.alphaTest = 0;
+					material.transparent = false;
+					break;
+
+				case M2_BLEND_ALPHA_KEY:
+					material.alphaTest = 0.5;
+					material.transparent = false;
+					break;
+
+				case M2_BLEND_ALPHA:
+					material.alphaTest = 0;
+					material.transparent = true;
+					break;
+
+				default:
+					console.warn( 'THREE.M2Loader: Unsupported blending mode.' );
+					break;
+
+			}
 
 			material.map = textures[ batch.textureComboIndex ];
 
 			// mesh
 
-			const geometry = geometries[ i ];
+			const geometry = geometries[ batch.skinSectionIndex ];
 
 			const mesh = new Mesh( geometry, material );
 			group.add( mesh );
@@ -313,8 +347,14 @@ class M2Loader extends Loader {
 		header.texturesOffset = parser.readUInt32();
 		header.textureWeightsLength = parser.readUInt32();
 		header.textureWeightsOffset = parser.readUInt32();
-		header.textureFlipbooksLength = parser.readUInt32();
-		header.textureFlipbooksOffset = parser.readUInt32();
+
+		if ( header.version <= M2_VERSION_THE_BURNING_CRUSADE ) {
+
+			header.textureFlipbooksLength = parser.readUInt32();
+			header.textureFlipbooksOffset = parser.readUInt32();
+
+		}
+
 		header.textureTransformsLength = parser.readUInt32();
 		header.textureTransformsOffset = parser.readUInt32();
 		header.textureIndicesByIdLength = parser.readUInt32();
@@ -369,7 +409,7 @@ class M2Loader extends Loader {
 		parser.saveState();
 		parser.moveTo( offset );
 
-		const name = parser.readString( length ).replaceAll( '\x00', '' );
+		const name = parser.readString( length ).replace( /\0/g, '' ); // remove control characters
 
 		parser.restoreState();
 
@@ -413,7 +453,12 @@ class M2Loader extends Loader {
 		parser.saveState();
 		parser.moveTo( offset );
 
-		texture.filename = parser.readString( length ).replaceAll( '\x00', '' );
+		let filename = parser.readString( length );
+		filename = filename.replace( /\0/g, '' ); // remove control characters
+		filename = filename.replace( /^.*[\\\/]/, '' ); // remove directory path
+		filename = filename.toLowerCase(); // ensure lowercase characters
+
+		texture.filename = filename;
 
 		parser.restoreState();
 
@@ -507,8 +552,12 @@ const M2_VERSION_LEGION = 274;
 const M2_MATERIAL_UNLIT = 0x01;
 const M2_MATERIAL_UNFOGGED = 0x02;
 const M2_MATERIAL_TWO_SIDED = 0x04;
-// const M2_MATERIAL_DEPTH_TEST = 0x08;
-// const M2_MATERIAL_DEPTH_WRITE = 0x10;
+const M2_MATERIAL_DEPTH_TEST = 0x08;
+const M2_MATERIAL_DEPTH_WRITE = 0x10;
+
+const M2_BLEND_OPAQUE = 0;
+const M2_BLEND_ALPHA_KEY = 1;
+const M2_BLEND_ALPHA = 2;
 
 //
 
@@ -738,7 +787,10 @@ class BLPLoader extends Loader {
 
 	}
 
-	load( url, onLoad, onProgress, onError ) {
+	load( config, onLoad, onProgress, onError ) {
+
+		const url = config.url;
+		const flags = config.flags;
 
 		const loader = new FileLoader( this.manager );
 		loader.setPath( this.path );
@@ -749,8 +801,7 @@ class BLPLoader extends Loader {
 
 			try {
 
-				onLoad( this.parse( buffer ) );
-
+				onLoad( this.parse( buffer, flags ) );
 
 			} catch ( e ) {
 
@@ -772,7 +823,7 @@ class BLPLoader extends Loader {
 
 	}
 
-	parse( buffer ) {
+	parse( buffer, flags ) {
 
 		const parser = new BinaryParser( buffer );
 
@@ -876,6 +927,11 @@ class BLPLoader extends Loader {
 			// TODO Handle uncompressed textures
 
 		}
+
+		//
+
+		if ( flags & 0x1 ) texture.wrapS = RepeatWrapping;
+		if ( flags & 0x2 ) texture.wrapT = RepeatWrapping;
 
 		return texture;
 
