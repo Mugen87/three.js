@@ -107,8 +107,10 @@ class M2Loader extends Loader {
 		// data
 
 		const name = this._readName( parser, header );
+		const bones = this._readBones( parser, header ); // eslint-disable-line no-unused-vars
 		const vertices = this._readVertices( parser, header );
 		const textureDefinitions = this._readTextureDefinitions( parser, header );
+		const boneLookupTable = this._readBoneLookupTable( parser, header ); // eslint-disable-line no-unused-vars
 		const textureLookupTable = this._readTextureLookupTable( parser, header );
 		const materials = this._readMaterials( parser, header );
 
@@ -376,6 +378,75 @@ class M2Loader extends Loader {
 
 	//
 
+	_readBoneLookupTable( parser, header ) {
+
+		const length = header.boneLookupTableLength;
+		const offset = header.boneLookupTableOffset;
+
+		parser.saveState();
+		parser.moveTo( offset );
+
+		const lookupTable = [];
+
+		for ( let i = 0; i < length; i ++ ) {
+
+			lookupTable.push( parser.readUInt16() );
+
+		}
+
+		parser.restoreState();
+
+		return lookupTable;
+
+	}
+
+	_readBone( parser, header ) {
+
+		const bone = new M2Bone();
+
+		bone.keyBoneId = parser.readInt32();
+		bone.flags = parser.readUInt32();
+		bone.parentBone = parser.readInt16();
+		bone.submeshId = parser.readUInt16();
+		bone.boneNameCRC = parser.readUInt32();
+
+		bone.translation = this._readTrack( parser, header, 'vec3' );
+		bone.rotation = this._readTrack( parser, header, 'quat' );
+		bone.scale = this._readTrack( parser, header, 'vec3' );
+
+		bone.pivot.set(
+			parser.readFloat32(),
+			parser.readFloat32(),
+			parser.readFloat32()
+		);
+
+		return bone;
+
+	}
+
+	_readBones( parser, header ) {
+
+		const length = header.bonesLength;
+		const offset = header.bonesOffset;
+
+		parser.saveState();
+		parser.moveTo( offset );
+
+		const bones = [];
+
+		for ( let i = 0; i < length; i ++ ) {
+
+			const bone = this._readBone( parser, header );
+			bones.push( bone );
+
+		}
+
+		parser.restoreState();
+
+		return bones;
+
+	}
+
 	_readMaterials( parser, header ) {
 
 		const length = header.materialsLength;
@@ -490,6 +561,127 @@ class M2Loader extends Loader {
 
 	}
 
+	_readTrack( parser, header, type ) {
+
+		const track = new M2Track();
+
+		track.interpolationType = parser.readUInt16();
+		track.globalSequence = parser.readInt16();
+
+		// timestamps
+
+		const timestampsLength = parser.readUInt32();
+		const timestampsOffset = parser.readUInt32();
+
+		parser.saveState();
+		parser.moveTo( timestampsOffset );
+
+		for ( let i = 0; i < timestampsLength; i ++ ) {
+
+			const values = [];
+
+			const entryLength = parser.readUInt32();
+			const entryOffset = parser.readUInt32();
+
+			parser.saveState();
+			parser.moveTo( entryOffset );
+
+			for ( let j = 0; j < entryLength; j ++ ) {
+
+				values.push( parser.readUInt32() );
+
+			}
+
+			track.timestamps.push( values );
+
+			parser.restoreState();
+
+		}
+
+		parser.restoreState();
+
+		// values
+
+		const valuesLength = parser.readUInt32();
+		const valuesOffset = parser.readUInt32();
+
+		parser.saveState();
+		parser.moveTo( valuesOffset );
+
+		for ( let i = 0; i < valuesLength; i ++ ) {
+
+			const values = [];
+
+			const entryLength = parser.readUInt32();
+			const entryOffset = parser.readUInt32();
+
+			parser.saveState();
+			parser.moveTo( entryOffset );
+
+			for ( let j = 0; j < entryLength; j ++ ) {
+
+				switch ( type ) {
+
+					case 'vec2':
+						values.push(
+							parser.readFloat32(),
+							parser.readFloat32()
+						);
+						break;
+
+					case 'vec3':
+						values.push(
+							parser.readFloat32(),
+							parser.readFloat32(),
+							parser.readFloat32()
+						);
+						break;
+
+					case 'quat':
+
+						if ( header.version > M2_VERSION_CLASSIC ) {
+
+							values.push(
+								int16ToFloat( parser.readInt16() ),
+								int16ToFloat( parser.readInt16() ),
+								int16ToFloat( parser.readInt16() ),
+								int16ToFloat( parser.readInt16() ),
+							);
+
+						} else {
+
+							values.push(
+								parser.readFloat32(),
+								parser.readFloat32(),
+								parser.readFloat32(),
+								parser.readFloat32()
+							);
+
+						}
+
+						break;
+
+					default:
+						break;
+
+				}
+
+			}
+
+			track.values.push( values );
+
+			parser.restoreState();
+
+		}
+
+		parser.restoreState();
+
+		//
+
+		return track;
+
+	}
+
 	_readVertices( parser, header ) {
 
 		const length = header.verticesLength;
@@ -563,7 +755,7 @@ class M2Loader extends Loader {
 // const M2_GLOBAL_FLAGS_UNK_3 = 0x1000;
 // const M2_GLOBAL_FLAGS_CHUNKED_ANIM_FILES = 0x2000;
 
-// const M2_VERSION_CLASSIC = 256;
+const M2_VERSION_CLASSIC = 256;
 const M2_VERSION_THE_BURNING_CRUSADE = 263;
 const M2_VERSION_WRATH_OF_THE_LICH_KING = 264;
 // const M2_VERSION_CATACLYSM = 272;
@@ -992,7 +1184,7 @@ class BinaryParser {
 		this.offset = 0;
 		this.chunkOffset = 0;
 
-		this._savedOffset = - 1;
+		this._savedOffsets = [];
 
 	}
 
@@ -1013,6 +1205,22 @@ class BinaryParser {
 	readInt8() {
 
 		return this.view.getInt8( this.offset ++ );
+
+	}
+
+	readInt16() {
+
+		const int = this.view.getInt16( this.offset, true );
+		this.offset += 2;
+		return int;
+
+	}
+
+	readInt32() {
+
+		const int = this.view.getInt32( this.offset, true );
+		this.offset += 4;
+		return int;
 
 	}
 
@@ -1054,13 +1262,13 @@ class BinaryParser {
 
 	saveState() {
 
-		this._savedOffset = this.offset;
+		this._savedOffsets.push( this.offset );
 
 	}
 
 	restoreState() {
 
-		this.offset = this._savedOffset;
+		this.offset = this._savedOffsets.pop();
 
 	}
 
@@ -1085,6 +1293,24 @@ class M2Batch {
 		this.textureCoordComboIndex = 0;
 		this.textureWeightComboIndex = 0;
 		this.textureTransformComboIndex = 0;
+
+	}
+
+}
+
+class M2Bone {
+
+	constructor() {
+
+		this.keyBoneId = 0;
+		this.flags = 0;
+		this.parentBone = 0;
+		this.submeshId = 0;
+		this.boneNameCRC = 0;
+		this.translation = [];
+		this.rotation = [];
+		this.scale = [];
+		this.pivot = new Vector3();
 
 	}
 
@@ -1135,6 +1361,18 @@ class M2Texture {
 
 }
 
+class M2Track {
+
+	constructor() {
+
+		this.interpolationType = 0;
+		this.globalSequence = 0;
+		this.timestamps = [];
+		this.values = [];
+
+	}
+
+}
 
 class M2Vertex {
 
@@ -1147,6 +1385,12 @@ class M2Vertex {
 		this.texCoords = [ new Vector2(), new Vector2() ];
 
 	}
+
+}
+
+function int16ToFloat( x ) {
+
+	return ( x < 0 ? x + 32768 : x - 32767 ) / 32767;
 
 }
 
