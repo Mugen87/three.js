@@ -1,4 +1,5 @@
 import {
+	AnimationClip,
 	BufferGeometry,
 	CompressedTexture,
 	DoubleSide,
@@ -17,7 +18,8 @@ import {
 	RGBA_S3TC_DXT5_Format,
 	RGBA_BPTC_Format,
 	Vector2,
-	Vector3
+	Vector3,
+	VectorKeyframeTrack
 } from 'three';
 
 // The loader in its current state is just a foundation for a more advanced M2 loader. Right now, the class only implements
@@ -72,8 +74,6 @@ class M2Loader extends Loader {
 
 		const parser = new BinaryParser( buffer );
 
-		const promises = [];
-
 		// magic
 
 		let magic = parser.readString( 4 );
@@ -107,49 +107,38 @@ class M2Loader extends Loader {
 		// data
 
 		const name = this._readName( parser, header );
-		const bones = this._readBones( parser, header ); // eslint-disable-line no-unused-vars
 		const vertices = this._readVertices( parser, header );
+		const materialDefinitions = this._readMaterialDefinitions( parser, header );
 		const textureDefinitions = this._readTextureDefinitions( parser, header );
-		const boneLookupTable = this._readBoneLookupTable( parser, header ); // eslint-disable-line no-unused-vars
-		const textureLookupTable = this._readTextureLookupTable( parser, header );
-		const materials = this._readMaterials( parser, header );
+		const textureTransformDefinitions = this._readTextureTransformDefinitions( parser, header );
+		const boneDefinitions = this._readBoneDefinitions( parser, header ); // eslint-disable-line no-unused-vars
 
-		// textures
+		// lookup tables
+
+		const lookupTables = {};
+		lookupTables.bones = this._readBoneLookupTable( parser, header ); // eslint-disable-line no-unused-vars
+		lookupTables.textures = this._readTextureLookupTable( parser, header );
+		lookupTables.textureTransforms = this._readTextureTransformsLookupTable( parser, header );
+
+		// loaders
 
 		const resourcePath = LoaderUtils.extractUrlBase( path );
 
 		const textureLoader = new BLPLoader( this.manager );
 		textureLoader.setPath( resourcePath );
+		textureLoader.setHeader( header );
 
-		for ( let i = 0; i < textureDefinitions.length; i ++ ) {
+		const skinLoader = new M2SkinLoader( this.manager );
+		skinLoader.setPath( resourcePath );
+		skinLoader.setHeader( header );
 
-			const textureDefinition = textureDefinitions[ i ];
-			let filename = textureDefinition.filename;
+		// textures
 
-			if ( i === 0 && filename === '' ) filename = name + '.blp'; // if the first texture has an empty name, fallback on the .m2 name
-
-			const promise = new Promise( ( resolve, reject ) => {
-
-				const config = {
-					url: filename,
-					flags: textureDefinition.flags
-				};
-
-				textureLoader.load( config, resolve, undefined, () => {
-
-					reject( new Error( 'THREE.M2Loader: Failed to load texture: ' + filename ) );
-
-				} );
-
-			} );
-
-			promises.push( promise );
-
-		}
+		const texturePromises = this._buildTextures( textureDefinitions, textureLoader, name );
 
 		// skins
 
-		Promise.all( promises ).then( ( textures ) => {
+		Promise.all( texturePromises ).then( ( textures ) => {
 
 			// skins
 
@@ -162,9 +151,6 @@ class M2Loader extends Loader {
 				// TODO ignore header.numSkinProfiles for now and just load the default skin
 
 				const url = ( name + '00.skin' ).toLowerCase();
-				const skinLoader = new M2SkinLoader( this.manager );
-				skinLoader.setPath( resourcePath );
-				skinLoader.setHeader( header );
 
 				const promise = new Promise( ( resolve, reject ) => {
 
@@ -180,7 +166,11 @@ class M2Loader extends Loader {
 
 				promise.then( skinData => {
 
-					const group = this._build( name, vertices, materials, skinData, textures, textureLookupTable );
+					const geometries = this._buildGeometries( skinData, vertices );
+					const materials = this._buildMaterials( materialDefinitions );
+					const textureTransforms = this._buildTextureTransforms( textureTransformDefinitions );
+					const group = this._buildObjects( name, geometries, materials, textures, textureTransforms, skinData, lookupTables );
+
 					onLoad( group );
 
 				} ).catch( onError );
@@ -191,16 +181,69 @@ class M2Loader extends Loader {
 
 	}
 
-	_build( name, vertices, materials, skinData, textures, textureLookupTable ) {
+	_buildObjects( name, geometries, materials, textures, textureTransforms, skinData, lookupTables ) {
 
 		const group = new Group();
+		group.name = name;
+
+		// meshes
+
+		const batches = skinData.batches;
+
+		for ( let i = 0; i < batches.length; i ++ ) {
+
+			const batch = batches[ i ];
+
+			const animations = [];
+			const geometry = geometries[ batch.skinSectionIndex ];
+			const material = materials[ batch.materialIndex ];
+
+			// texture
+
+			const textureIndex = lookupTables.textures[ batch.textureComboIndex ];
+
+			if ( textureIndex !== undefined ) {
+
+				material.map = textures[ textureIndex ];
+
+			}
+
+			// texture transform animations
+
+			const textureTransformIndex = lookupTables.textureTransforms[ batch.textureTransformComboIndex ];
+
+			if ( textureTransformIndex !== undefined ) {
+
+				const textureTransform = textureTransforms[ textureTransformIndex ];
+
+				if ( textureTransform !== undefined ) {
+
+					animations.push( ...textureTransform );
+
+				}
+
+			}
+
+			// mesh
+
+			const mesh = new Mesh( geometry, material );
+			mesh.animations.push( ...animations );
+
+			group.add( mesh );
+
+		}
+
+		return group;
+
+	}
+
+	_buildGeometries( skinData, vertices ) {
 
 		// geometry
 
 		const localVertexList = skinData.localVertexList;
 		const indices = skinData.indices;
 		const submeshes = skinData.submeshes;
-		const batches = skinData.batches;
 
 		// buffer attributes
 
@@ -245,13 +288,18 @@ class M2Loader extends Loader {
 
 		}
 
-		// meshes
+		return geometries;
 
-		for ( let i = 0; i < batches.length; i ++ ) {
+	}
 
-			const batch = batches[ i ];
+	_buildMaterials( materialDefinitions ) {
 
-			const materialDefinition = materials[ batch.materialIndex ];
+		const materials = [];
+
+		for ( let i = 0; i < materialDefinitions.length; i ++ ) {
+
+			const materialDefinition = materialDefinitions[ i ];
+
 			const materialFlags = materialDefinition.flags;
 			const blendingMode = materialDefinition.blendingMode;
 
@@ -285,23 +333,109 @@ class M2Loader extends Loader {
 					console.warn( 'THREE.M2Loader: Unsupported blending mode.' );
 					break;
 
+
 			}
 
-			const textureIndex = textureLookupTable[ batch.textureComboIndex ];
-			material.map = textures[ textureIndex ];
-
-			// mesh
-
-			const geometry = geometries[ batch.skinSectionIndex ];
-
-			const mesh = new Mesh( geometry, material );
-			group.add( mesh );
+			materials.push( material );
 
 		}
 
-		group.name = name;
+		return materials;
 
-		return group;
+	}
+
+	_buildTextures( textureDefinitions, loader, name ) {
+
+		const promises = [];
+
+		for ( let i = 0; i < textureDefinitions.length; i ++ ) {
+
+			const textureDefinition = textureDefinitions[ i ];
+			let filename = textureDefinition.filename;
+
+			if ( i === 0 && filename === '' ) filename = name + '.blp'; // if the first texture has an empty name, fallback on the .m2 name
+
+			const promise = new Promise( ( resolve, reject ) => {
+
+				const config = {
+					url: filename,
+					flags: textureDefinition.flags
+				};
+
+				loader.load( config, resolve, undefined, () => {
+
+					reject( new Error( 'THREE.M2Loader: Failed to load texture: ' + filename ) );
+
+				} );
+
+			} );
+
+			promises.push( promise );
+
+		}
+
+		return promises;
+
+	}
+
+	_buildTextureTransforms( textureTransformDefinitions ) {
+
+		const textureTransforms = [];
+
+		for ( let i = 0; i < textureTransformDefinitions.length; i ++ ) {
+
+			const textureTransformDefinition = textureTransformDefinitions[ i ];
+
+			if ( textureTransformDefinition !== undefined ) {
+
+				const animations = [];
+				const offsetKeyFrames = [];
+
+				for ( let j = 0; j < textureTransformDefinition.translation.timestamps.length; j ++ ) {
+
+					const ti = textureTransformDefinition.translation.timestamps[ j ];
+					const vi = textureTransformDefinition.translation.values[ j ];
+
+					const times = [];
+					const values = [];
+
+					// times
+
+					for ( let k = 0; k < ti.length; k ++ ) {
+
+						times.push( ti[ k ] / 1000 );
+
+					}
+
+					// values
+
+					for ( let k = 0; k < vi.length; k += 3 ) {
+
+						// extract x,y, ignore z
+
+						values.push( vi[ k ] );
+						values.push( vi[ k + 1 ] );
+
+					}
+
+					offsetKeyFrames.push( new VectorKeyframeTrack( '.offset', times, values ) );
+
+				}
+
+				for ( let j = 0; j < offsetKeyFrames.length; j ++ ) {
+
+					const clip = new AnimationClip( 'TextureTransform_' + j, - 1, [ offsetKeyFrames[ j ] ] );
+					animations.push( clip );
+
+				}
+
+				textureTransforms.push( animations );
+
+			}
+
+		}
+
+		return textureTransforms;
 
 	}
 
@@ -371,6 +505,10 @@ class M2Loader extends Loader {
 		header.textureLookupTableOffset = parser.readUInt32();
 		header.textureUnitLookupTableLength = parser.readUInt32();
 		header.textureUnitLookupTableOffset = parser.readUInt32();
+		header.transparencyLookupTableLength = parser.readUInt32();
+		header.transparencyLookupTableOffset = parser.readUInt32();
+		header.textureTransformsLookupTableLength = parser.readUInt32();
+		header.textureTransformsLookupTableOffset = parser.readUInt32();
 
 		return header;
 
@@ -400,7 +538,7 @@ class M2Loader extends Loader {
 
 	}
 
-	_readBone( parser, header ) {
+	_readBoneDefinition( parser, header ) {
 
 		const bone = new M2Bone();
 
@@ -424,7 +562,7 @@ class M2Loader extends Loader {
 
 	}
 
-	_readBones( parser, header ) {
+	_readBoneDefinitions( parser, header ) {
 
 		const length = header.bonesLength;
 		const offset = header.bonesOffset;
@@ -436,7 +574,7 @@ class M2Loader extends Loader {
 
 		for ( let i = 0; i < length; i ++ ) {
 
-			const bone = this._readBone( parser, header );
+			const bone = this._readBoneDefinition( parser, header );
 			bones.push( bone );
 
 		}
@@ -447,7 +585,7 @@ class M2Loader extends Loader {
 
 	}
 
-	_readMaterials( parser, header ) {
+	_readMaterialDefinitions( parser, header ) {
 
 		const length = header.materialsLength;
 		const offset = header.materialsOffset;
@@ -543,6 +681,64 @@ class M2Loader extends Loader {
 
 		const length = header.textureLookupTableLength;
 		const offset = header.textureLookupTableOffset;
+
+		parser.saveState();
+		parser.moveTo( offset );
+
+		const lookupTable = [];
+
+		for ( let i = 0; i < length; i ++ ) {
+
+			lookupTable.push( parser.readUInt16() );
+
+		}
+
+		parser.restoreState();
+
+		return lookupTable;
+
+	}
+
+	_readTextureTransformDefinitions( parser, header ) {
+
+		const length = header.textureTransformsLength;
+		const offset = header.textureTransformsOffset;
+
+		parser.saveState();
+		parser.moveTo( offset );
+
+		const textureTransforms = [];
+
+		for ( let i = 0; i < length; i ++ ) {
+
+			const textureTransform = this._readTextureTransformDefinition( parser, header );
+			textureTransforms.push( textureTransform );
+
+		}
+
+		parser.restoreState();
+
+		return textureTransforms;
+
+
+	}
+
+	_readTextureTransformDefinition( parser, header ) {
+
+		const textureTransform = new M2TextureTransform();
+
+		textureTransform.translation = this._readTrack( parser, header, 'vec3' );
+		textureTransform.rotation = this._readTrack( parser, header, 'quat' );
+		textureTransform.scale = this._readTrack( parser, header, 'vec3' );
+
+		return textureTransform;
+
+	}
+
+	_readTextureTransformsLookupTable( parser, header ) {
+
+		const length = header.textureTransformsLookupTableLength;
+		const offset = header.textureTransformsLookupTableOffset;
 
 		parser.saveState();
 		parser.moveTo( offset );
@@ -1001,6 +1197,14 @@ class BLPLoader extends Loader {
 
 		super( manager );
 
+		this.header = null;
+
+	}
+
+	setHeader( header ) {
+
+		this.header = header;
+
 	}
 
 	load( config, onLoad, onProgress, onError ) {
@@ -1017,7 +1221,7 @@ class BLPLoader extends Loader {
 
 			try {
 
-				onLoad( this.parse( buffer, flags ) );
+				onLoad( this.parse( buffer, url, flags ) );
 
 			} catch ( e ) {
 
@@ -1039,7 +1243,7 @@ class BLPLoader extends Loader {
 
 	}
 
-	parse( buffer, flags ) {
+	parse( buffer, url, flags ) {
 
 		const parser = new BinaryParser( buffer );
 
@@ -1148,6 +1352,8 @@ class BLPLoader extends Loader {
 
 		if ( flags & 0x1 ) texture.wrapS = RepeatWrapping;
 		if ( flags & 0x2 ) texture.wrapT = RepeatWrapping;
+
+		texture.name = url;
 
 		return texture;
 
@@ -1307,9 +1513,9 @@ class M2Bone {
 		this.parentBone = 0;
 		this.submeshId = 0;
 		this.boneNameCRC = 0;
-		this.translation = [];
-		this.rotation = [];
-		this.scale = [];
+		this.translation = null;
+		this.rotation = null;
+		this.scale = null;
 		this.pivot = new Vector3();
 
 	}
@@ -1356,6 +1562,18 @@ class M2Texture {
 		this.type = 0;
 		this.flags = 0;
 		this.filename = '';
+
+	}
+
+}
+
+class M2TextureTransform {
+
+	constructor() {
+
+		this.translation = null;
+		this.rotation = null;
+		this.scale = null;
 
 	}
 
