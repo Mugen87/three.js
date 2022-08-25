@@ -468,7 +468,7 @@ class M2Loader extends Loader {
 
 					}
 
-					offsetKeyFrames.push( new VectorKeyframeTrack( '.material.map.offset', times, values ) );
+					if ( times.length > 0 ) offsetKeyFrames.push( new VectorKeyframeTrack( '.material.map.offset', times, values ) );
 
 				}
 
@@ -599,7 +599,7 @@ class M2Loader extends Loader {
 		bone.boneNameCRC = parser.readUInt32();
 
 		bone.translation = this._readTrack( parser, header, 'vec3' );
-		bone.rotation = this._readTrack( parser, header, 'quat' );
+		bone.rotation = this._readTrack( parser, header, 'quatCompressed' );
 		bone.scale = this._readTrack( parser, header, 'vec3' );
 
 		bone.pivot.set(
@@ -948,7 +948,7 @@ class M2Loader extends Loader {
 						);
 						break;
 
-					case 'quat':
+					case 'quatCompressed':
 
 						if ( header.version > M2_VERSION_CLASSIC ) {
 
@@ -969,6 +969,17 @@ class M2Loader extends Loader {
 							);
 
 						}
+
+						break;
+
+					case 'quat':
+
+						values.push(
+							parser.readFloat32(),
+							parser.readFloat32(),
+							parser.readFloat32(),
+							parser.readFloat32()
+						);
 
 						break;
 
