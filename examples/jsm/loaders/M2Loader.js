@@ -74,15 +74,20 @@ class M2Loader extends Loader {
 
 		const parser = new BinaryParser( buffer );
 
+		let chunks = new Map();
+		let chunkedFile = false;
+
 		// magic
 
 		let magic = parser.readString( 4 );
 
 		if ( magic === 'MD21' ) {
 
-			const md21ChunkSize = parser.readUInt32(); // eslint-disable-line no-unused-vars
+			chunkedFile = true;
 
-			parser.chunkOffset = parser.offset; // offsets inside MD21 are relative to the chunk, not the file
+			parser.offset += 4; // skip "size" field of MD21 chunk
+
+			parser.chunkOffset = parser.offset; // offsets inside chunks are relative to the chunk, not the file
 
 			magic = parser.readString( 4 );
 
@@ -101,6 +106,14 @@ class M2Loader extends Loader {
 		if ( header.version >= M2_VERSION_LEGION ) {
 
 			throw new Error( 'THREE.M2Loader: M2 asset from Legion or higher are not supported yet.' );
+
+		}
+
+		// chunks
+
+		if ( chunkedFile === true ) {
+
+			chunks = this._readChunks( buffer, header );
 
 		}
 
@@ -134,7 +147,7 @@ class M2Loader extends Loader {
 
 		// textures
 
-		const texturePromises = this._buildTextures( textureDefinitions, textureLoader, name );
+		const texturePromises = this._buildTextures( textureDefinitions, textureLoader, name, chunks );
 
 		// skins
 
@@ -148,15 +161,21 @@ class M2Loader extends Loader {
 
 			} else {
 
-				// TODO ignore header.numSkinProfiles for now and just load the default skin
+				let filename = ( name + '00.skin' ).toLowerCase(); // default skin name based on .m2 file
 
-				const url = ( name + '00.skin' ).toLowerCase();
+				const skinFileDataIDs = chunks.get( 'SFID' );
+
+				if ( skinFileDataIDs !== undefined ) {
+
+					filename = skinFileDataIDs[ 0 ] + '.skin';
+
+				}
 
 				const promise = new Promise( ( resolve, reject ) => {
 
-					skinLoader.load( url, resolve, undefined, () => {
+					skinLoader.load( filename, resolve, undefined, () => {
 
-						reject( new Error( 'THREE.M2Loader: Failed to load skin file: ' + url ) );
+						reject( new Error( 'THREE.M2Loader: Failed to load skin file: ' + filename ) );
 
 					} );
 
@@ -344,7 +363,7 @@ class M2Loader extends Loader {
 
 	}
 
-	_buildTextures( textureDefinitions, loader, name ) {
+	_buildTextures( textureDefinitions, loader, name, chunks ) {
 
 		const promises = [];
 
@@ -353,7 +372,37 @@ class M2Loader extends Loader {
 			const textureDefinition = textureDefinitions[ i ];
 			let filename = textureDefinition.filename;
 
-			if ( i === 0 && filename === '' ) filename = name + '.blp'; // if the first texture has an empty name, fallback on the .m2 name
+			// if the filename is empty, use the FileDataID field from the TXID chunk
+
+			if ( filename === '' ) {
+
+				const textureFileDataIds = chunks.get( 'TXID' );
+
+				if ( textureFileDataIds !== undefined ) {
+
+					filename = textureFileDataIds[ i ] + '.blp';
+
+				}
+
+			}
+
+			// fallback: if the first texture has an empty name, use .m2 name
+
+			if ( filename === '' ) {
+
+				if ( i === 0 ) {
+
+					filename = ( name + '.blp' ).toLowerCase();
+
+				} else {
+
+					continue;
+
+				}
+
+			}
+
+			//
 
 			const promise = new Promise( ( resolve, reject ) => {
 
@@ -364,7 +413,7 @@ class M2Loader extends Loader {
 
 				loader.load( config, resolve, undefined, () => {
 
-					reject( new Error( 'THREE.M2Loader: Failed to load texture: ' + filename ) );
+					reject( new Error( 'THREE.M2Loader: Failed to load texture: ' + config.url ) );
 
 				} );
 
@@ -582,6 +631,71 @@ class M2Loader extends Loader {
 		parser.restoreState();
 
 		return bones;
+
+	}
+
+	_readChunks( buffer, header ) {
+
+		const parser = new BinaryParser( buffer );
+
+		const chunkMap = new Map();
+		const data = new Map();
+
+		while ( parser.offset < buffer.byteLength ) {
+
+			const id = parser.readString( 4 );
+			const size = parser.readUInt32();
+
+			const start = parser.offset;
+			const end = parser.offset + size;
+
+			chunkMap.set( id, { start, end } );
+
+			parser.offset = end;
+
+		}
+
+		// TXID
+
+		const txid = chunkMap.get( 'TXID' );
+
+		if ( txid !== undefined ) {
+
+			parser.moveTo( txid.start );
+
+			const textureFileDataIds = [];
+
+			while ( parser.offset < txid.end ) {
+
+				textureFileDataIds.push( parser.readUInt32() );
+
+			}
+
+			data.set( 'TXID', textureFileDataIds );
+
+		}
+
+		// SFID
+
+		const sfid = chunkMap.get( 'SFID' );
+
+		if ( sfid !== undefined ) {
+
+			parser.moveTo( sfid.start );
+
+			const skinFileDataIDs = [];
+
+			for ( let i = 0; i < header.numSkinProfiles; i ++ ) {
+
+				skinFileDataIDs.push( parser.readUInt32() );
+
+			}
+
+			data.set( 'SFID', skinFileDataIDs );
+
+		}
+
+		return data;
 
 	}
 
