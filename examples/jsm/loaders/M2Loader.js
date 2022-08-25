@@ -13,6 +13,7 @@ import {
 	Mesh,
 	MeshBasicMaterial,
 	MeshLambertMaterial,
+	NumberKeyframeTrack,
 	RepeatWrapping,
 	RGBA_S3TC_DXT1_Format,
 	RGBA_S3TC_DXT3_Format,
@@ -116,9 +117,11 @@ class M2Loader extends Loader {
 
 		const name = this._readName( parser, header );
 		const vertices = this._readVertices( parser, header );
+		const colors = this._readColors( parser, header ); // eslint-disable-line no-unused-vars
 		const materialDefinitions = this._readMaterialDefinitions( parser, header );
 		const textureDefinitions = this._readTextureDefinitions( parser, header );
 		const textureTransformDefinitions = this._readTextureTransformDefinitions( parser, header );
+		const textureWeightDefinitions = this._readTextureWeightDefinitions( parser, header ); // eslint-disable-line no-unused-vars
 		const boneDefinitions = this._readBoneDefinitions( parser, header ); // eslint-disable-line no-unused-vars
 
 		// lookup tables
@@ -127,6 +130,7 @@ class M2Loader extends Loader {
 		lookupTables.bones = this._readBoneLookupTable( parser, header ); // eslint-disable-line no-unused-vars
 		lookupTables.textures = this._readTextureLookupTable( parser, header );
 		lookupTables.textureTransforms = this._readTextureTransformsLookupTable( parser, header );
+		lookupTables.textureWeights = this._readTextureWeightsLookupTable( parser, header );
 
 		// loaders
 
@@ -183,7 +187,8 @@ class M2Loader extends Loader {
 					const geometries = this._buildGeometries( skinData, vertices );
 					const materials = this._buildMaterials( materialDefinitions );
 					const textureTransforms = this._buildTextureTransforms( textureTransformDefinitions );
-					const group = this._buildObjects( name, geometries, materials, textures, textureTransforms, skinData, lookupTables );
+					const textureWeights = this._buildTextureWeights( textureWeightDefinitions );
+					const group = this._buildObjects( name, geometries, materials, textures, textureTransforms, textureWeights, skinData, lookupTables );
 
 					onLoad( group );
 
@@ -195,7 +200,7 @@ class M2Loader extends Loader {
 
 	}
 
-	_buildObjects( name, geometries, materials, textures, textureTransforms, skinData, lookupTables ) {
+	_buildObjects( name, geometries, materials, textures, textureTransforms, textureWeights, skinData, lookupTables ) {
 
 		const group = new Group();
 		group.name = name;
@@ -233,6 +238,22 @@ class M2Loader extends Loader {
 				if ( textureTransform !== undefined ) {
 
 					animations.push( ...textureTransform );
+
+				}
+
+			}
+
+			// opacity animations
+
+			const textureWeightIndex = lookupTables.textureWeights[ batch.textureWeightComboIndex ];
+
+			if ( textureWeightIndex !== undefined ) {
+
+				const textureWeight = textureWeights[ textureWeightIndex ];
+
+				if ( textureWeight !== undefined ) {
+
+					animations.push( ...textureWeight );
 
 				}
 
@@ -449,6 +470,10 @@ class M2Loader extends Loader {
 					const times = [];
 					const values = [];
 
+					// ignore empty tracks
+
+					if ( ti.length <= 1 ) continue;
+
 					// times
 
 					for ( let k = 0; k < ti.length; k ++ ) {
@@ -468,7 +493,7 @@ class M2Loader extends Loader {
 
 					}
 
-					if ( times.length > 0 ) offsetKeyFrames.push( new VectorKeyframeTrack( '.material.map.offset', times, values ) );
+					offsetKeyFrames.push( new VectorKeyframeTrack( '.material.map.offset', times, values ) );
 
 				}
 
@@ -486,6 +511,69 @@ class M2Loader extends Loader {
 		}
 
 		return textureTransforms;
+
+	}
+
+	_buildTextureWeights( textureWeightDefinitions ) {
+
+		const textureWeights = [];
+
+		for ( let i = 0; i < textureWeightDefinitions.length; i ++ ) {
+
+			const textureWeightDefinition = textureWeightDefinitions[ i ];
+
+			if ( textureWeightDefinition !== undefined ) {
+
+				const animations = [];
+				const opacityKeyFrames = [];
+
+				for ( let j = 0; j < textureWeightDefinition.timestamps.length; j ++ ) {
+
+					const ti = textureWeightDefinition.timestamps[ j ];
+					const vi = textureWeightDefinition.values[ j ];
+
+					const times = [];
+					const values = [];
+
+					// ignore empty tracks
+
+					if ( ti.length <= 1 ) continue;
+
+
+					// times
+
+					for ( let k = 0; k < ti.length; k ++ ) {
+
+						times.push( ti[ k ] / 1000 );
+
+					}
+
+					// values
+
+					for ( let k = 0; k < vi.length; k ++ ) {
+
+						values.push( vi[ k ] );
+
+					}
+
+					opacityKeyFrames.push( new NumberKeyframeTrack( '.material.opacity', times, values ) );
+
+				}
+
+				for ( let j = 0; j < opacityKeyFrames.length; j ++ ) {
+
+					const clip = new AnimationClip( 'Opacity_' + j, - 1, [ opacityKeyFrames[ j ] ] );
+					animations.push( clip );
+
+				}
+
+				textureWeights.push( animations );
+
+			}
+
+		}
+
+		return textureWeights;
 
 	}
 
@@ -700,6 +788,33 @@ class M2Loader extends Loader {
 
 	}
 
+	_readColors( parser, header ) {
+
+		const length = header.colorsLength;
+		const offset = header.colorsOffset;
+
+		parser.saveState();
+		parser.moveTo( offset );
+
+		const colors = [];
+
+		for ( let i = 0; i < length; i ++ ) {
+
+			const color = new M2Color();
+
+			color.color = this._readTrack( parser, header, 'vec3' );
+			color.alpha = this._readTrack( parser, header, 'fixed16' );
+
+			colors.push( color );
+
+		}
+
+		parser.restoreState();
+
+		return colors;
+
+	}
+
 	_readMaterialDefinitions( parser, header ) {
 
 		const length = header.materialsLength;
@@ -872,6 +987,52 @@ class M2Loader extends Loader {
 
 	}
 
+	_readTextureWeightDefinitions( parser, header ) {
+
+		const length = header.textureWeightsLength;
+		const offset = header.textureWeightsOffset;
+
+		parser.saveState();
+		parser.moveTo( offset );
+
+		const textureWeights = [];
+
+		for ( let i = 0; i < length; i ++ ) {
+
+			const track = this._readTrack( parser, header, 'fixed16' );
+
+			textureWeights.push( track );
+
+		}
+
+		parser.restoreState();
+
+		return textureWeights;
+
+	}
+
+	_readTextureWeightsLookupTable( parser, header ) {
+
+		const length = header.transparencyLookupTableLength;
+		const offset = header.transparencyLookupTableOffset;
+
+		parser.saveState();
+		parser.moveTo( offset );
+
+		const lookupTable = [];
+
+		for ( let i = 0; i < length; i ++ ) {
+
+			lookupTable.push( parser.readUInt16() );
+
+		}
+
+		parser.restoreState();
+
+		return lookupTable;
+
+	}
+
 	_readTrack( parser, header, type ) {
 
 		const track = new M2Track();
@@ -933,19 +1094,31 @@ class M2Loader extends Loader {
 
 				switch ( type ) {
 
+					case 'fixed16':
+
+						values.push(
+							parser.readInt16() / 0x7fff
+						);
+
+						break;
+
 					case 'vec2':
+
 						values.push(
 							parser.readFloat32(),
 							parser.readFloat32()
 						);
+
 						break;
 
 					case 'vec3':
+
 						values.push(
 							parser.readFloat32(),
 							parser.readFloat32(),
 							parser.readFloat32()
 						);
+
 						break;
 
 					case 'quatCompressed':
@@ -1642,6 +1815,17 @@ class M2Bone {
 		this.rotation = null;
 		this.scale = null;
 		this.pivot = new Vector3();
+
+	}
+
+}
+
+class M2Color {
+
+	constructor() {
+
+		this.color = null;
+		this.alpha = null;
 
 	}
 
