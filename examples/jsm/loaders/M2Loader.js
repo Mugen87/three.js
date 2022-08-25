@@ -1,4 +1,5 @@
 import {
+	AdditiveBlending,
 	AnimationClip,
 	BufferGeometry,
 	CompressedTexture,
@@ -102,12 +103,6 @@ class M2Loader extends Loader {
 		// headers
 
 		const header = this._readHeader( parser );
-
-		if ( header.version >= M2_VERSION_LEGION ) {
-
-			throw new Error( 'THREE.M2Loader: M2 asset from Legion or higher are not supported yet.' );
-
-		}
 
 		// chunks
 
@@ -346,6 +341,12 @@ class M2Loader extends Loader {
 				case M2_BLEND_ALPHA:
 					material.alphaTest = 0;
 					material.transparent = true;
+					break;
+
+				case M2BLEND_ADD:
+					material.alphaTest = 0;
+					material.transparent = true;
+					material.blending = AdditiveBlending;
 					break;
 
 				default:
@@ -1084,6 +1085,7 @@ const M2_MATERIAL_DEPTH_WRITE = 0x10;
 const M2_BLEND_OPAQUE = 0;
 const M2_BLEND_ALPHA_KEY = 1;
 const M2_BLEND_ALPHA = 2;
+const M2BLEND_ADD = 4;
 
 //
 
