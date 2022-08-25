@@ -131,7 +131,7 @@
 						if ( object.animations.length > 0 ) {
 
 							const clip = object.animations[ 0 ];
-							const mixer = new THREE.AnimationMixer( object.material.map );
+							const mixer = new THREE.AnimationMixer( object );
 							const action = mixer.clipAction( clip );
 							action.play();
 							mixers.push( mixer );

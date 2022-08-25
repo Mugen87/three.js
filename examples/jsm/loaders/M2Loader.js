@@ -418,7 +418,7 @@ class M2Loader extends Loader {
 
 					}
 
-					offsetKeyFrames.push( new VectorKeyframeTrack( '.offset', times, values ) );
+					offsetKeyFrames.push( new VectorKeyframeTrack( '.material.map.offset', times, values ) );
 
 				}
 
@@ -1101,7 +1101,6 @@ class M2SkinLoader extends Loader {
 			const submesh = this._readSubmesh( parser, header );
 			submeshes.push( submesh );
 
-
 		}
 
 		// batches
@@ -1114,7 +1113,6 @@ class M2SkinLoader extends Loader {
 
 			const batch = this._readBatch( parser );
 			batches.push( batch );
-
 
 		}
 
