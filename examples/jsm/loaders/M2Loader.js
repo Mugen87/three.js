@@ -1,6 +1,7 @@
 import {
 	AdditiveBlending,
 	AnimationClip,
+	Bone,
 	BufferGeometry,
 	CompressedTexture,
 	DoubleSide,
@@ -19,6 +20,8 @@ import {
 	RGBA_S3TC_DXT3_Format,
 	RGBA_S3TC_DXT5_Format,
 	RGBA_BPTC_Format,
+	Skeleton,
+	Uint8BufferAttribute,
 	Vector2,
 	Vector3,
 	VectorKeyframeTrack
@@ -121,13 +124,13 @@ class M2Loader extends Loader {
 		const materialDefinitions = this._readMaterialDefinitions( parser, header );
 		const textureDefinitions = this._readTextureDefinitions( parser, header );
 		const textureTransformDefinitions = this._readTextureTransformDefinitions( parser, header );
-		const textureWeightDefinitions = this._readTextureWeightDefinitions( parser, header ); // eslint-disable-line no-unused-vars
-		const boneDefinitions = this._readBoneDefinitions( parser, header ); // eslint-disable-line no-unused-vars
+		const textureWeightDefinitions = this._readTextureWeightDefinitions( parser, header );
+		const boneDefinitions = this._readBoneDefinitions( parser, header );
 
 		// lookup tables
 
 		const lookupTables = {};
-		lookupTables.bones = this._readBoneLookupTable( parser, header ); // eslint-disable-line no-unused-vars
+		lookupTables.bones = this._readBoneLookupTable( parser, header );
 		lookupTables.textures = this._readTextureLookupTable( parser, header );
 		lookupTables.textureTransforms = this._readTextureTransformsLookupTable( parser, header );
 		lookupTables.textureWeights = this._readTextureWeightsLookupTable( parser, header );
@@ -185,6 +188,7 @@ class M2Loader extends Loader {
 				promise.then( skinData => {
 
 					const geometries = this._buildGeometries( skinData, vertices );
+					const skeleton = this._buildSkeleton( boneDefinitions ); // eslint-disable-line no-unused-vars
 					const materials = this._buildMaterials( materialDefinitions );
 					const textureTransforms = this._buildTextureTransforms( textureTransformDefinitions );
 					const textureWeights = this._buildTextureWeights( textureWeightDefinitions );
@@ -285,6 +289,8 @@ class M2Loader extends Loader {
 		const position = [];
 		const normal = [];
 		const uv = [];
+		const skinIndex = [];
+		const skinWeight = [];
 
 		for ( let i = 0; i < localVertexList.length; i ++ ) {
 
@@ -296,12 +302,16 @@ class M2Loader extends Loader {
 			position.push( vertex.pos.x, vertex.pos.y, vertex.pos.z );
 			normal.push( vertex.normal.x, vertex.normal.y, vertex.normal.z );
 			uv.push( vertex.texCoords[ 0 ].x, vertex.texCoords[ 0 ].y );
+			skinIndex.push( ... vertex.boneIndices );
+			skinWeight.push( ... vertex.boneWeights );
 
 		}
 
 		const positionAttribute = new Float32BufferAttribute( position, 3 );
 		const normalAttribute = new Float32BufferAttribute( normal, 3 );
 		const uvAttribute = new Float32BufferAttribute( uv, 2 );
+		const skinIndexAttribute = new Uint8BufferAttribute( skinIndex, 4, true );
+		const skinWeightAttribute = new Uint8BufferAttribute( skinWeight, 4, true );
 
 		// geometries
 
@@ -317,6 +327,8 @@ class M2Loader extends Loader {
 			geometry.setAttribute( 'position', positionAttribute );
 			geometry.setAttribute( 'normal', normalAttribute );
 			geometry.setAttribute( 'uv', uvAttribute );
+			geometry.setAttribute( 'skinIndex', skinIndexAttribute );
+			geometry.setAttribute( 'skinWeight', skinWeightAttribute );
 			geometry.setIndex( index );
 
 			geometries.push( geometry );
@@ -382,6 +394,32 @@ class M2Loader extends Loader {
 		}
 
 		return materials;
+
+	}
+
+	_buildSkeleton( boneDefinitions ) {
+
+		// TODO: Find out a better way for detecting static models
+		// Problem: Even static models have some bone definitions
+
+		if ( boneDefinitions.length < 8 ) return null;
+
+		const bones = [];
+
+		for ( let i = 0; i < boneDefinitions.length; i ++ ) {
+
+			const boneDefinition = boneDefinitions[ i ];
+			const bone = new Bone();
+
+			bones.push( bone );
+
+			const parentIndex = boneDefinition.parentBone;
+
+			if ( parentIndex !== - 1 ) bones[ parentIndex ].add( bone );
+
+		}
+
+		return new Skeleton( bones );
 
 	}
 
