@@ -15,6 +15,7 @@ import {
 	MeshBasicMaterial,
 	MeshLambertMaterial,
 	NumberKeyframeTrack,
+	Quaternion,
 	RepeatWrapping,
 	RGBA_S3TC_DXT1_Format,
 	RGBA_S3TC_DXT3_Format,
@@ -498,7 +499,9 @@ class M2Loader extends Loader {
 			if ( textureTransformDefinition !== undefined ) {
 
 				const animations = [];
-				const offsetKeyFrames = [];
+				const keyframes = [];
+
+				// translation
 
 				for ( let j = 0; j < textureTransformDefinition.translation.timestamps.length; j ++ ) {
 
@@ -531,13 +534,72 @@ class M2Loader extends Loader {
 
 					}
 
-					offsetKeyFrames.push( new VectorKeyframeTrack( '.material.map.offset', times, values ) );
+					if ( keyframes[ j ] === undefined ) keyframes[ j ] = [];
+
+					keyframes[ j ].push( new VectorKeyframeTrack( '.material.map.offset', times, values ) );
 
 				}
 
-				for ( let j = 0; j < offsetKeyFrames.length; j ++ ) {
+				// rotation
 
-					const clip = new AnimationClip( 'TextureTransform_' + j, - 1, [ offsetKeyFrames[ j ] ] );
+				const q = new Quaternion();
+				const v0 = new Vector3();
+				const v1 = new Vector3( 0, 1, 0 );
+				const up = new Vector3( 0, 0, - 1 );
+				const cross = new Vector3();
+
+				for ( let j = 0; j < textureTransformDefinition.rotation.timestamps.length; j ++ ) {
+
+					const ti = textureTransformDefinition.rotation.timestamps[ j ];
+					const vi = textureTransformDefinition.rotation.values[ j ];
+
+					const times = [];
+					const values = [];
+
+					// ignore empty tracks
+
+					if ( ti.length <= 1 ) continue;
+
+					// times
+
+					for ( let k = 0; k < ti.length; k ++ ) {
+
+						times.push( ti[ k ] / 1000 );
+
+					}
+
+					// values
+
+					let r = 0;
+
+					for ( let k = 0; k < vi.length; k += 4 ) {
+
+						// convert quaterion to single angle
+						// it's not possible to use angleTo() since this method returns angles in the range [0,π] (instead of [-π, π]).
+						// TODO: Verify if this approach works with other assets than g_scourgerunecirclecrystal.m2
+
+						q.fromArray( vi, k );
+
+						v0.copy( v1 );
+						v1.set( 0, 1, 0 ).applyQuaternion( q );
+
+						const dot = v0.dot( v1 );
+						const det = up.dot( cross.crossVectors( v0, v1 ) );
+						r += Math.atan2( det, dot );
+
+						values.push( r );
+
+					}
+
+					if ( keyframes[ j ] === undefined ) keyframes[ j ] = [];
+
+					keyframes[ j ].push( new NumberKeyframeTrack( '.material.map.rotation', times, values ) );
+
+				}
+
+				for ( let j = 0; j < keyframes.length; j ++ ) {
+
+					const clip = new AnimationClip( 'TextureTransform_' + j, - 1, [ ... keyframes[ j ] ] );
 					animations.push( clip );
 
 				}
@@ -1653,6 +1715,7 @@ class BLPLoader extends Loader {
 			header.preferredFormat === BLP_PIXEL_FORMAT_PIXEL_BC5 ) {
 
 			texture = new CompressedTexture( mipmaps, header.width, header.height );
+			texture.center.set( 0.5, 0.5 );
 			texture.needsUpdate = true;
 
 			switch ( header.preferredFormat ) {
