@@ -22,7 +22,6 @@ import {
 	RGBA_S3TC_DXT5_Format,
 	RGBA_BPTC_Format,
 	Skeleton,
-	Uint8BufferAttribute,
 	Vector2,
 	Vector3,
 	VectorKeyframeTrack
