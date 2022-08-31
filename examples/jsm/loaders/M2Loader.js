@@ -290,8 +290,6 @@ class M2Loader extends Loader {
 		const position = [];
 		const normal = [];
 		const uv = [];
-		const skinIndex = [];
-		const skinWeight = [];
 
 		for ( let i = 0; i < localVertexList.length; i ++ ) {
 
@@ -303,16 +301,12 @@ class M2Loader extends Loader {
 			position.push( vertex.pos.x, vertex.pos.y, vertex.pos.z );
 			normal.push( vertex.normal.x, vertex.normal.y, vertex.normal.z );
 			uv.push( vertex.texCoords[ 0 ].x, vertex.texCoords[ 0 ].y );
-			skinIndex.push( ... vertex.boneIndices );
-			skinWeight.push( ... vertex.boneWeights );
 
 		}
 
 		const positionAttribute = new Float32BufferAttribute( position, 3 );
 		const normalAttribute = new Float32BufferAttribute( normal, 3 );
 		const uvAttribute = new Float32BufferAttribute( uv, 2 );
-		const skinIndexAttribute = new Uint8BufferAttribute( skinIndex, 4, true );
-		const skinWeightAttribute = new Uint8BufferAttribute( skinWeight, 4, true );
 
 		// geometries
 
@@ -328,8 +322,6 @@ class M2Loader extends Loader {
 			geometry.setAttribute( 'position', positionAttribute );
 			geometry.setAttribute( 'normal', normalAttribute );
 			geometry.setAttribute( 'uv', uvAttribute );
-			geometry.setAttribute( 'skinIndex', skinIndexAttribute );
-			geometry.setAttribute( 'skinWeight', skinWeightAttribute );
 			geometry.setIndex( index );
 
 			geometries.push( geometry );
