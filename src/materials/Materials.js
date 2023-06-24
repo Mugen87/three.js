@@ -7,6 +7,7 @@ import { MeshPhysicalMaterial } from './MeshPhysicalMaterial.js';
 import { MeshStandardMaterial } from './MeshStandardMaterial.js';
 import { MeshPhongMaterial } from './MeshPhongMaterial.js';
 import { MeshToonMaterial } from './MeshToonMaterial.js';
+import { MeshVelocityMaterial } from './MeshVelocityMaterial.js';
 import { MeshNormalMaterial } from './MeshNormalMaterial.js';
 import { MeshLambertMaterial } from './MeshLambertMaterial.js';
 import { MeshDepthMaterial } from './MeshDepthMaterial.js';
@@ -27,6 +28,7 @@ export {
 	MeshStandardMaterial,
 	MeshPhongMaterial,
 	MeshToonMaterial,
+	MeshVelocityMaterial,
 	MeshNormalMaterial,
 	MeshLambertMaterial,
 	MeshDepthMaterial,

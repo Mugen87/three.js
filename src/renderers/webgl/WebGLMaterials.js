@@ -32,7 +32,7 @@ function WebGLMaterials( renderer, properties ) {
 
 	}
 
-	function refreshMaterialUniforms( uniforms, material, pixelRatio, height, transmissionRenderTarget ) {
+	function refreshMaterialUniforms( uniforms, material, camera, pixelRatio, height, transmissionRenderTarget ) {
 
 		if ( material.isMeshBasicMaterial ) {
 
@@ -80,6 +80,11 @@ function WebGLMaterials( renderer, properties ) {
 		} else if ( material.isMeshNormalMaterial ) {
 
 			refreshUniformsCommon( uniforms, material );
+
+		} else if ( material.isMeshVelocityMaterial ) {
+
+			refreshUniformsCommon( uniforms, material );
+			resreshUniformsVelocity( uniforms, camera );
 
 		} else if ( material.isLineBasicMaterial ) {
 
@@ -554,6 +559,13 @@ function WebGLMaterials( renderer, properties ) {
 		uniforms.referencePosition.value.setFromMatrixPosition( light.matrixWorld );
 		uniforms.nearDistance.value = light.shadow.camera.near;
 		uniforms.farDistance.value = light.shadow.camera.far;
+
+	}
+
+	function resreshUniformsVelocity( uniforms, camera ) {
+
+		uniforms.previousProjectionViewMatrix.value.copy( uniforms.currentProjectionViewMatrix.value );
+		uniforms.currentProjectionViewMatrix.value.multiplyMatrices( camera.projectionMatrix, camera.matrixWorldInverse );
 
 	}
 

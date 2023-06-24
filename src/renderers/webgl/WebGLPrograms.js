@@ -25,6 +25,7 @@ function WebGLPrograms( renderer, cubemaps, cubeuvmaps, extensions, capabilities
 		MeshLambertMaterial: 'lambert',
 		MeshPhongMaterial: 'phong',
 		MeshToonMaterial: 'toon',
+		MeshVelocityMaterial: 'velocity',
 		MeshStandardMaterial: 'physical',
 		MeshPhysicalMaterial: 'physical',
 		MeshMatcapMaterial: 'matcap',

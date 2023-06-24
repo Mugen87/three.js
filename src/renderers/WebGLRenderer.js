@@ -207,6 +207,10 @@ class WebGLRenderer {
 
 		let _transmissionRenderTarget = null;
 
+		// velocity
+
+		const _worldMatrixCache = new WeakMap();
+
 		// camera matrices cache
 
 		const _projScreenMatrix = new Matrix4();
@@ -1918,7 +1922,7 @@ class WebGLRenderer {
 
 				}
 
-				materials.refreshMaterialUniforms( m_uniforms, material, _pixelRatio, _height, _transmissionRenderTarget );
+				materials.refreshMaterialUniforms( m_uniforms, material, camera, _pixelRatio, _height, _transmissionRenderTarget );
 
 				WebGLUniforms.upload( _gl, materialProperties.uniformsList, m_uniforms, textures );
 
@@ -1934,6 +1938,23 @@ class WebGLRenderer {
 			if ( material.isSpriteMaterial ) {
 
 				p_uniforms.setValue( _gl, 'center', object.center );
+
+			}
+
+			if ( material.isMeshVelocityMaterial ) {
+
+				let previousModelMatrix = _worldMatrixCache.get( object );
+
+				if ( previousModelMatrix === undefined ) {
+
+					previousModelMatrix = new Matrix4();
+					_worldMatrixCache.set( object, previousModelMatrix );
+
+				}
+
+				p_uniforms.setValue( _gl, 'previousModelMatrix', previousModelMatrix );
+
+				previousModelMatrix.copy( object.matrixWorld );
 
 			}
 
