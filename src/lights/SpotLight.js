@@ -15,8 +15,6 @@ class SpotLight extends Light {
 		this.position.copy( Object3D.DEFAULT_UP );
 		this.updateMatrix();
 
-		this.target = new Object3D();
-
 		this.distance = distance;
 		this.angle = angle;
 		this.penumbra = penumbra;
@@ -57,8 +55,6 @@ class SpotLight extends Light {
 		this.angle = source.angle;
 		this.penumbra = source.penumbra;
 		this.decay = source.decay;
-
-		this.target = source.target.clone();
 
 		this.shadow = source.shadow.clone();
 

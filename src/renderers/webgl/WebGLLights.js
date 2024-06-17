@@ -1,5 +1,6 @@
 import { Color } from '../../math/Color.js';
 import { Matrix4 } from '../../math/Matrix4.js';
+import { Quaternion } from '../../math/Quaternion.js';
 import { Vector2 } from '../../math/Vector2.js';
 import { Vector3 } from '../../math/Vector3.js';
 import { UniformsLib } from '../shaders/UniformsLib.js';
@@ -471,6 +472,10 @@ function WebGLLights( extensions ) {
 
 	}
 
+	const _v1 = new Vector3();
+	const _q1 = new Quaternion();
+	const _s1 = new Vector3();
+
 	function setupView( lights, camera ) {
 
 		let directionalLength = 0;
@@ -489,9 +494,9 @@ function WebGLLights( extensions ) {
 
 				const uniforms = state.directional[ directionalLength ];
 
-				uniforms.direction.setFromMatrixPosition( light.matrixWorld );
-				vector3.setFromMatrixPosition( light.target.matrixWorld );
-				uniforms.direction.sub( vector3 );
+				light.matrixWorld.decompose( _v1, _q1, _s1 );
+
+				uniforms.direction.set( 0, 0, - 1 ).applyQuaternion( _q1 ).negate();
 				uniforms.direction.transformDirection( viewMatrix );
 
 				directionalLength ++;
@@ -500,12 +505,12 @@ function WebGLLights( extensions ) {
 
 				const uniforms = state.spot[ spotLength ];
 
-				uniforms.position.setFromMatrixPosition( light.matrixWorld );
+				light.matrixWorld.decompose( _v1, _q1, _s1 );
+
+				uniforms.position.copy( _v1 );
 				uniforms.position.applyMatrix4( viewMatrix );
 
-				uniforms.direction.setFromMatrixPosition( light.matrixWorld );
-				vector3.setFromMatrixPosition( light.target.matrixWorld );
-				uniforms.direction.sub( vector3 );
+				uniforms.direction.set( 0, 0, - 1 ).applyQuaternion( _q1 ).negate();
 				uniforms.direction.transformDirection( viewMatrix );
 
 				spotLength ++;

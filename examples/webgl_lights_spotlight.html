@@ -235,6 +235,8 @@
 				spotLight.position.x = Math.cos( time ) * 2.5;
 				spotLight.position.z = Math.sin( time ) * 2.5;
 
+				spotLight.lookAt( 0, 0, 0 );
+
 				lightHelper.update();
 
 				renderer.render( scene, camera );

@@ -64,9 +64,8 @@ class SpotLightHelper extends Object3D {
 	update() {
 
 		this.light.updateWorldMatrix( true, false );
-		this.light.target.updateWorldMatrix( true, false );
 
-		// update the local matrix based on the parent and light target transforms
+		// update the local matrix based on the parent
 		if ( this.parent ) {
 
 			this.parent.updateWorldMatrix( true );
@@ -89,7 +88,7 @@ class SpotLightHelper extends Object3D {
 
 		this.cone.scale.set( coneWidth, coneWidth, coneLength );
 
-		_vector.setFromMatrixPosition( this.light.target.matrixWorld );
+		this.light.getWorldDirection( _vector );
 
 		this.cone.lookAt( _vector );
 

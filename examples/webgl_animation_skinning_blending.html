@@ -71,6 +71,7 @@
 
 				const dirLight = new THREE.DirectionalLight( 0xffffff, 3 );
 				dirLight.position.set( - 3, 10, - 10 );
+				dirLight.lookAt( 0, 0, 0 );
 				dirLight.castShadow = true;
 				dirLight.shadow.camera.top = 2;
 				dirLight.shadow.camera.bottom = - 2;

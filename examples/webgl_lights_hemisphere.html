@@ -72,6 +72,7 @@
 			import { GUI } from 'three/addons/libs/lil-gui.module.min.js';
 
 			import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+			import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
 			let camera, scene, renderer;
 			const mixers = [];
@@ -109,6 +110,7 @@
 				dirLight.color.setHSL( 0.1, 1, 0.95 );
 				dirLight.position.set( - 1, 1.75, 1 );
 				dirLight.position.multiplyScalar( 30 );
+				dirLight.lookAt( 0, 0, 0 );
 				scene.add( dirLight );
 
 				dirLight.castShadow = true;
@@ -128,6 +130,8 @@
 
 				const dirLightHelper = new THREE.DirectionalLightHelper( dirLight, 10 );
 				scene.add( dirLightHelper );
+
+				scene.add( new THREE.AxesHelper( 10 ) );
 
 				// GROUND
 
@@ -198,6 +202,8 @@
 				renderer.setAnimationLoop( animate );
 				container.appendChild( renderer.domElement );
 				renderer.shadowMap.enabled = true;
+
+				const controls = new OrbitControls( camera, renderer.domElement );
 
 				// STATS
 

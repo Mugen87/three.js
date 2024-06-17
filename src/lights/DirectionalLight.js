@@ -15,8 +15,6 @@ class DirectionalLight extends Light {
 		this.position.copy( Object3D.DEFAULT_UP );
 		this.updateMatrix();
 
-		this.target = new Object3D();
-
 		this.shadow = new DirectionalLightShadow();
 
 	}
@@ -31,7 +29,6 @@ class DirectionalLight extends Light {
 
 		super.copy( source );
 
-		this.target = source.target.clone();
 		this.shadow = source.shadow.clone();
 
 		return this;
