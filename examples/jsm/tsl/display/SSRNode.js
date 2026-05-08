@@ -1,6 +1,5 @@
-import { HalfFloatType, RenderTarget, Vector2, RendererUtils, QuadMesh, TempNode, NodeMaterial, NodeUpdateType, LinearFilter, LinearMipmapLinearFilter } from 'three/webgpu';
-import { texture, reference, viewZToPerspectiveDepth, logarithmicDepthToViewZ, getScreenPosition, getViewPosition, mul, div, cross, float, Continue, Break, Loop, int, max, abs, sub, If, dot, reflect, normalize, screenCoordinate, nodeObject, Fn, passTexture, uv, uniform, perspectiveDepthToViewZ, orthographicDepthToViewZ, vec2, vec3, vec4 } from 'three/tsl';
-import { boxBlur } from './boxBlur.js';
+import { HalfFloatType, RenderTarget, Vector2, RendererUtils, QuadMesh, TempNode, NodeMaterial, NodeUpdateType } from 'three/webgpu';
+import { reference, viewZToPerspectiveDepth, logarithmicDepthToViewZ, getScreenPosition, getViewPosition, mul, div, cross, float, Continue, Break, Loop, int, max, min, abs, sub, If, dot, reflect, normalize, select, sin, cos, sqrt, inversesqrt, fract, PI, interleavedGradientNoise, screenCoordinate, nodeObject, Fn, passTexture, uv, uniform, perspectiveDepthToViewZ, orthographicDepthToViewZ, vec2, vec3, vec4 } from 'three/tsl';
 
 const _quadMesh = /*@__PURE__*/ new QuadMesh();
 const _size = /*@__PURE__*/ new Vector2();
@@ -8,6 +7,16 @@ let _rendererState;
 
 /**
  * Post processing node for computing screen space reflections (SSR).
+ *
+ * When `roughnessNode` is provided, the per-pixel reflection direction is drawn
+ * from the GGX distribution of visible normals (Heitz 2018) using the surface
+ * roughness as the cone width. This produces physically-based glossy reflections
+ * directly from one stochastic sample per pixel — no separate blur pass is
+ * needed. Pair with a temporal anti-aliasing node (e.g. `TRAANode`) to
+ * accumulate the per-frame stochastic samples into a smooth result.
+ *
+ * If `roughnessNode` is `null`, a perfect mirror reflection is used (the legacy
+ * SSR behavior).
  *
  * Reference: {@link https://lettier.github.io/3d-game-shaders-for-beginners/screen-space-reflection.html}
  *
@@ -29,7 +38,7 @@ class SSRNode extends TempNode {
 	 * @param {Node<float>} depthNode - A node that represents the beauty pass's depth.
 	 * @param {Node<vec3>} normalNode - A node that represents the beauty pass's normals.
 	 * @param {Node<float>} metalnessNode - A node that represents the beauty pass's metalness.
-	 * @param {?Node<float>} [roughnessNode=null] - A node that represents the beauty pass's roughness.
+	 * @param {?Node<float>} [roughnessNode=null] - A node that represents the beauty pass's roughness. When provided, drives the GGX VNDF cone width for stochastic glossy reflections; when `null`, mirror reflections are used.
 	 * @param {?Camera} [camera=null] - The camera the scene is rendered with.
 	 */
 	constructor( colorNode, depthNode, normalNode, metalnessNode, roughnessNode = null, camera = null ) {
@@ -65,13 +74,11 @@ class SSRNode extends TempNode {
 		this.metalnessNode = metalnessNode;
 
 		/**
-		 * Whether the SSR reflections should be blurred or not. Blurring is a costly
-		 * operation so turn it off if you encounter performance issues on certain
-		 * devices.
+		 * A node that represents the beauty pass's roughness. Drives the cone width
+		 * of the GGX VNDF stochastic reflection direction. When `null`, a perfect
+		 * mirror reflection is used.
 		 *
-		 * @private
-		 * @type {Node<float>}
-		 * @default false
+		 * @type {?Node<float>}
 		 */
 		this.roughnessNode = roughnessNode;
 
@@ -130,13 +137,6 @@ class SSRNode extends TempNode {
 		 */
 		this.quality = uniform( 0.5 );
 
-		/**
-		 * The quality of the blur. Must be an integer in the range `[1,3]`.
-		 *
-		 * @type {UniformNode<int>}
-		 */
-		this.blurQuality = uniform( 2 );
-
 		//
 
 		if ( camera === null ) {
@@ -159,14 +159,6 @@ class SSRNode extends TempNode {
 		 * @type {Camera}
 		 */
 		this.camera = camera;
-
-		/**
-		 * The spread of the blur. Automatically set when generating mips.
-		 *
-		 * @private
-		 * @type {UniformNode<int>}
-		 */
-		this._blurSpread = uniform( 1 );
 
 		/**
 		 * Represents the projection matrix of the scene's camera.
@@ -217,6 +209,15 @@ class SSRNode extends TempNode {
 		this._resolution = uniform( new Vector2() );
 
 		/**
+		 * Frame counter used as a temporal decorrelation seed for the stochastic
+		 * reflection direction. Only used when `roughnessNode` is provided.
+		 *
+		 * @private
+		 * @type {UniformNode<float>}
+		 */
+		this._frameIndex = uniform( 0 );
+
+		/**
 		 * The render target the SSR is rendered into.
 		 *
 		 * @private
@@ -224,16 +225,6 @@ class SSRNode extends TempNode {
 		 */
 		this._ssrRenderTarget = new RenderTarget( 1, 1, { depthBuffer: false, type: HalfFloatType } );
 		this._ssrRenderTarget.texture.name = 'SSRNode.SSR';
-
-		/**
-		 * The render target for the blurred SSR reflections.
-		 *
-		 * @private
-		 * @type {RenderTarget}
-		 */
-		this._blurRenderTarget = new RenderTarget( 1, 1, { depthBuffer: false, type: HalfFloatType, minFilter: LinearMipmapLinearFilter, magFilter: LinearFilter } );
-		this._blurRenderTarget.texture.name = 'SSRNode.Blur';
-		this._blurRenderTarget.texture.mipmaps.push( {}, {}, {}, {}, {} );
 
 		/**
 		 * The material that is used to render the effect.
@@ -245,50 +236,12 @@ class SSRNode extends TempNode {
 		this._ssrMaterial.name = 'SSRNode.SSR';
 
 		/**
-		 * The blur material.
-		 *
-		 * @private
-		 * @type {NodeMaterial}
-		 */
-		this._blurMaterial = new NodeMaterial();
-		this._blurMaterial.name = 'SSRNode.Blur';
-
-		/**
-		 * The copy material.
-		 *
-		 * @private
-		 * @type {NodeMaterial}
-		 */
-		this._copyMaterial = new NodeMaterial();
-		this._copyMaterial.name = 'SSRNode.Copy';
-
-		/**
 		 * The result of the effect is represented as a separate texture node.
 		 *
 		 * @private
 		 * @type {PassTextureNode}
 		 */
 		this._textureNode = passTexture( this, this._ssrRenderTarget.texture );
-
-		let blurredTextureNode = null;
-
-		if ( this.roughnessNode !== null ) {
-
-			const mips = this._blurRenderTarget.texture.mipmaps.length - 1;
-			const r = float( this.roughnessNode );
-			const lod = r.mul( r ).mul( mips ).clamp( 0, mips );
-
-			blurredTextureNode = passTexture( this, this._blurRenderTarget.texture ).level( lod );
-
-		}
-
-		/**
-		 * Holds the blurred SSR reflections.
-		 *
-		 * @private
-		 * @type {?PassTextureNode}
-		 */
-		this._blurredTextureNode = blurredTextureNode;
 
 	}
 
@@ -299,7 +252,7 @@ class SSRNode extends TempNode {
 	 */
 	getTextureNode() {
 
-		return this.roughnessNode !== null ? this._blurredTextureNode : this._textureNode;
+		return this._textureNode;
 
 	}
 
@@ -316,7 +269,6 @@ class SSRNode extends TempNode {
 
 		this._resolution.value.set( width, height );
 		this._ssrRenderTarget.setSize( width, height );
-		this._blurRenderTarget.setSize( width, height );
 
 	}
 
@@ -332,7 +284,6 @@ class SSRNode extends TempNode {
 		_rendererState = RendererUtils.resetRendererState( renderer, _rendererState );
 
 		const ssrRenderTarget = this._ssrRenderTarget;
-		const blurRenderTarget = this._blurRenderTarget;
 
 		const size = renderer.getDrawingBufferSize( _size );
 
@@ -345,30 +296,15 @@ class SSRNode extends TempNode {
 		renderer.setMRT( null );
 		renderer.setClearColor( 0x000000, 0 );
 
+		// temporal decorrelation seed for stochastic sampling
+
+		this._frameIndex.value = ( this._frameIndex.value + 1 ) % 64;
+
 		// ssr
 
 		renderer.setRenderTarget( ssrRenderTarget );
 		_quadMesh.name = 'SSR [ Reflections ]';
 		_quadMesh.render( renderer );
-
-		// blur (optional)
-
-		if ( this.roughnessNode !== null ) {
-
-			// blur mips but leave the base mip unblurred
-
-			for ( let i = 0; i < blurRenderTarget.texture.mipmaps.length; i ++ ) {
-
-				_quadMesh.material = ( i === 0 ) ? this._copyMaterial : this._blurMaterial;
-
-				this._blurSpread.value = i;
-				renderer.setRenderTarget( blurRenderTarget, 0, i );
-				_quadMesh.name = 'SSR [ Blur Level ' + i + ' ]';
-				_quadMesh.render( renderer );
-
-			}
-
-		}
 
 		// restore
 
@@ -441,6 +377,73 @@ class SSRNode extends TempNode {
 
 		};
 
+		// Heitz 2018 GGX VNDF sampling. `Ve` is the view direction in tangent
+		// space (normal = +Z). `alpha` is the GGX roughness (perceptual^2).
+		//
+		// Reference: "Sampling the GGX Distribution of Visible Normals", Heitz 2018.
+		// https://jcgt.org/published/0007/04/01/
+
+		const sampleGGXVNDF = Fn( ( [ Ve, alpha, u ] ) => {
+
+			// Section 3.2: transform the view direction to the hemisphere configuration
+			const Vh = normalize( vec3( Ve.x.mul( alpha ), Ve.y.mul( alpha ), Ve.z ) ).toVar();
+
+			// Section 4.1: orthonormal basis (degenerate case if cross product is zero)
+			const lensq = Vh.x.mul( Vh.x ).add( Vh.y.mul( Vh.y ) );
+			const T1 = select(
+				lensq.greaterThan( 0 ),
+				vec3( Vh.y.negate(), Vh.x, 0 ).mul( inversesqrt( max( lensq, float( 1e-6 ) ) ) ),
+				vec3( 1, 0, 0 )
+			).toVar();
+			const T2 = cross( Vh, T1 ).toVar();
+
+			// Section 4.2: parameterization of the projected area
+			const r = sqrt( u.x );
+			const phi = float( 2 ).mul( PI ).mul( u.y );
+			const t1 = r.mul( cos( phi ) ).toVar();
+			const t2Raw = r.mul( sin( phi ) );
+			const s = float( 0.5 ).mul( float( 1 ).add( Vh.z ) );
+			const t2 = float( 1 ).sub( s ).mul( sqrt( max( float( 0 ), float( 1 ).sub( t1.mul( t1 ) ) ) ) ).add( s.mul( t2Raw ) ).toVar();
+
+			// Section 4.3: reproject onto hemisphere
+			const Nh = T1.mul( t1 ).add( T2.mul( t2 ) ).add( Vh.mul( sqrt( max( float( 0 ), float( 1 ).sub( t1.mul( t1 ) ).sub( t2.mul( t2 ) ) ) ) ) );
+
+			// Section 3.4: transform the normal back to the ellipsoid configuration
+			return normalize( vec3( Nh.x.mul( alpha ), Nh.y.mul( alpha ), max( float( 0 ), Nh.z ) ) );
+
+		} );
+
+		// Stochastic reflection direction in view space: builds a TBN frame
+		// around the view normal, transforms the view direction into it, samples
+		// a half-vector via GGX VNDF, reflects, and transforms back.
+
+		const sampleReflectionDirection = Fn( ( [ viewDir, viewNormal, alpha, u ] ) => {
+
+			// Branchless Frisvad 2012 orthonormal basis around the view normal.
+			const n = viewNormal;
+			const signZ = select( n.z.greaterThanEqual( 0 ), float( 1 ), float( - 1 ) ).toVar();
+			const a = float( - 1 ).div( signZ.add( n.z ) ).toVar();
+			const b = n.x.mul( n.y ).mul( a ).toVar();
+			const T = vec3( float( 1 ).add( signZ.mul( n.x.mul( n.x ) ).mul( a ) ), signZ.mul( b ), signZ.negate().mul( n.x ) ).toVar();
+			const B = vec3( b, signZ.add( n.y.mul( n.y ).mul( a ) ), n.y.negate() ).toVar();
+			const N = n;
+
+			const vTan = vec3( dot( viewDir, T ), dot( viewDir, B ), dot( viewDir, N ) );
+			const hTan = sampleGGXVNDF( vTan, alpha, u );
+			const rTan = reflect( vTan.negate(), hTan );
+
+			return normalize( T.mul( rTan.x ).add( B.mul( rTan.y ) ).add( N.mul( rTan.z ) ) );
+
+		} );
+
+		const getRandomSample = Fn( ( [ pixel ] ) => {
+
+			const u1 = interleavedGradientNoise( pixel.add( vec2( this._frameIndex.mul( 5.588238 ), this._frameIndex.mul( 3.214141 ) ) ) );
+			const u2 = interleavedGradientNoise( pixel.add( vec2( this._frameIndex.mul( 2.971321 ), this._frameIndex.mul( 7.128342 ) ) ).add( vec2( 37.31, 19.97 ) ) );
+			return vec2( u1, u2 );
+
+		} );
+
 		const ssr = Fn( () => {
 
 			const metalness = float( this.metalnessNode );
@@ -456,8 +459,24 @@ class SSRNode extends TempNode {
 			// compute the direction from the position in view space to the camera
 			const viewIncidentDir = ( ( this.camera.isPerspectiveCamera ) ? normalize( viewPosition ) : vec3( 0, 0, - 1 ) ).toVar();
 
-			// compute the direction in which the light is reflected on the surface
-			const viewReflectDir = reflect( viewIncidentDir, viewNormal ).toVar();
+			// Reflection direction. When a roughness node is supplied, sample a single
+			// stochastic direction from the GGX distribution of visible normals — this
+			// produces physically-based glossy reflections (one sample per pixel, per
+			// frame). Without roughness we fall back to the pure mirror reflection.
+			let viewReflectDir;
+
+			if ( this.roughnessNode !== null ) {
+
+				const perceptualRoughness = float( this.roughnessNode );
+				const alpha = perceptualRoughness.mul( perceptualRoughness );
+				const u = getRandomSample( screenCoordinate.xy );
+				viewReflectDir = sampleReflectionDirection( viewIncidentDir.negate(), viewNormal, alpha, u ).toVar();
+
+			} else {
+
+				viewReflectDir = reflect( viewIncidentDir, viewNormal ).toVar();
+
+			}
 
 			// adapt maximum distance to the local geometry (see https://www.mathsisfun.com/algebra/vectors-dot-product.html)
 			const maxReflectRayLen = this.maxDistance.div( dot( viewIncidentDir.negate(), viewNormal ) ).toVar();
@@ -553,7 +572,10 @@ class SSRNode extends TempNode {
 
 					const tk = max( minThickness, this.thickness ).toVar();
 
-					If( away.lessThanEqual( tk ), () => { // hit
+					const thicknessFalloff = float( 1 ).sub( away.div( tk ).clamp() );
+					const thicknessConfidence = thicknessFalloff.mul( thicknessFalloff );
+
+					If( thicknessConfidence.greaterThan( 0 ), () => { // potential hit
 
 						const vN = this.normalNode.sample( uvNode ).rgb.normalize().toVar();
 
@@ -576,20 +598,27 @@ class SSRNode extends TempNode {
 
 						} );
 
-						const op = this.opacity.mul( metalness ).toVar();
-
 						// distance attenuation (the reflection should fade out the farther it is away from the surface)
 						const ratio = float( 1 ).sub( distance.div( this.maxDistance ) ).toVar();
-						const attenuation = ratio.mul( ratio );
-						op.mulAssign( attenuation );
+						const distanceConfidence = ratio.mul( ratio );
+
+						// Soft fade as the hit approaches the screen edge (5% border).
+						// Stops reflections from popping at the silhouette of the screen.
+						const edgeMargin = min( uvNode, vec2( 1 ).sub( uvNode ) );
+						const edgeConfidence = min( edgeMargin.x, edgeMargin.y ).div( 0.05 ).clamp();
+
+						const op = this.opacity.mul( metalness ).toVar();
+						op.mulAssign( thicknessConfidence );
+						op.mulAssign( distanceConfidence );
+						op.mulAssign( edgeConfidence );
 
 						// fresnel (reflect more light on surfaces that are viewed at grazing angles)
 						const fresnelCoe = div( dot( viewIncidentDir, viewReflectDir ).add( 1 ), 2 );
 						op.mulAssign( fresnelCoe );
 
-						// output
+						// output (premultiplied alpha)
 						const reflectColor = this.colorNode.sample( uvNode );
-						output.assign( vec4( reflectColor.rgb.mul( op ), 1 ) );
+						output.assign( vec4( reflectColor.rgb.mul( op ), op ) );
 						Break();
 
 					} );
@@ -605,18 +634,6 @@ class SSRNode extends TempNode {
 		this._ssrMaterial.fragmentNode = ssr().context( builder.getSharedContext() );
 		this._ssrMaterial.needsUpdate = true;
 
-		// below materials are used for blurring
-
-		const reflectionBuffer = texture( this._ssrRenderTarget.texture );
-
-		this._blurMaterial.fragmentNode = boxBlur( reflectionBuffer, { size: this.blurQuality, separation: this._blurSpread } );
-		this._blurMaterial.needsUpdate = true;
-
-		this._copyMaterial.fragmentNode = reflectionBuffer;
-		this._copyMaterial.needsUpdate = true;
-
-		//
-
 		return this.getTextureNode();
 
 	}
@@ -628,11 +645,7 @@ class SSRNode extends TempNode {
 	dispose() {
 
 		this._ssrRenderTarget.dispose();
-		this._blurRenderTarget.dispose();
-
 		this._ssrMaterial.dispose();
-		this._blurMaterial.dispose();
-		this._copyMaterial.dispose();
 
 	}
 
