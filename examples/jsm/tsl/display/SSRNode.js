@@ -1,5 +1,5 @@
 import { HalfFloatType, RenderTarget, Vector2, RendererUtils, QuadMesh, TempNode, NodeMaterial, NodeUpdateType } from 'three/webgpu';
-import { reference, viewZToPerspectiveDepth, logarithmicDepthToViewZ, getScreenPosition, getViewPosition, mul, div, cross, float, Continue, Break, Loop, int, max, min, abs, sub, If, dot, reflect, normalize, select, sin, cos, sqrt, inversesqrt, fract, PI, interleavedGradientNoise, screenCoordinate, nodeObject, Fn, passTexture, uv, uniform, perspectiveDepthToViewZ, orthographicDepthToViewZ, vec2, vec3, vec4 } from 'three/tsl';
+import { reference, viewZToPerspectiveDepth, logarithmicDepthToViewZ, getScreenPosition, getViewPosition, mul, div, cross, float, Continue, Break, Loop, int, max, min, abs, sub, If, dot, reflect, normalize, select, sin, cos, sqrt, inversesqrt, PI, interleavedGradientNoise, screenCoordinate, nodeObject, Fn, passTexture, uv, uniform, perspectiveDepthToViewZ, orthographicDepthToViewZ, vec2, vec3, vec4 } from 'three/tsl';
 
 const _quadMesh = /*@__PURE__*/ new QuadMesh();
 const _size = /*@__PURE__*/ new Vector2();
@@ -7,16 +7,6 @@ let _rendererState;
 
 /**
  * Post processing node for computing screen space reflections (SSR).
- *
- * When `roughnessNode` is provided, the per-pixel reflection direction is drawn
- * from the GGX distribution of visible normals (Heitz 2018) using the surface
- * roughness as the cone width. This produces physically-based glossy reflections
- * directly from one stochastic sample per pixel — no separate blur pass is
- * needed. Pair with a temporal anti-aliasing node (e.g. `TRAANode`) to
- * accumulate the per-frame stochastic samples into a smooth result.
- *
- * If `roughnessNode` is `null`, a perfect mirror reflection is used (the legacy
- * SSR behavior).
  *
  * Reference: {@link https://lettier.github.io/3d-game-shaders-for-beginners/screen-space-reflection.html}
  *
@@ -38,10 +28,10 @@ class SSRNode extends TempNode {
 	 * @param {Node<float>} depthNode - A node that represents the beauty pass's depth.
 	 * @param {Node<vec3>} normalNode - A node that represents the beauty pass's normals.
 	 * @param {Node<float>} metalnessNode - A node that represents the beauty pass's metalness.
-	 * @param {?Node<float>} [roughnessNode=null] - A node that represents the beauty pass's roughness. When provided, drives the GGX VNDF cone width for stochastic glossy reflections; when `null`, mirror reflections are used.
+	 * @param {?Node<float>} roughnessNode - A node that represents the beauty pass's roughness.
 	 * @param {?Camera} [camera=null] - The camera the scene is rendered with.
 	 */
-	constructor( colorNode, depthNode, normalNode, metalnessNode, roughnessNode = null, camera = null ) {
+	constructor( colorNode, depthNode, normalNode, metalnessNode, roughnessNode, camera = null ) {
 
 		super( 'vec4' );
 
@@ -74,9 +64,7 @@ class SSRNode extends TempNode {
 		this.metalnessNode = metalnessNode;
 
 		/**
-		 * A node that represents the beauty pass's roughness. Drives the cone width
-		 * of the GGX VNDF stochastic reflection direction. When `null`, a perfect
-		 * mirror reflection is used.
+		 * A node that represents the beauty pass's roughness.
 		 *
 		 * @type {?Node<float>}
 		 */
@@ -210,7 +198,7 @@ class SSRNode extends TempNode {
 
 		/**
 		 * Frame counter used as a temporal decorrelation seed for the stochastic
-		 * reflection direction. Only used when `roughnessNode` is provided.
+		 * reflection direction.
 		 *
 		 * @private
 		 * @type {UniformNode<float>}
@@ -463,20 +451,10 @@ class SSRNode extends TempNode {
 			// stochastic direction from the GGX distribution of visible normals — this
 			// produces physically-based glossy reflections (one sample per pixel, per
 			// frame). Without roughness we fall back to the pure mirror reflection.
-			let viewReflectDir;
-
-			if ( this.roughnessNode !== null ) {
-
-				const perceptualRoughness = float( this.roughnessNode );
-				const alpha = perceptualRoughness.mul( perceptualRoughness );
-				const u = getRandomSample( screenCoordinate.xy );
-				viewReflectDir = sampleReflectionDirection( viewIncidentDir.negate(), viewNormal, alpha, u ).toVar();
-
-			} else {
-
-				viewReflectDir = reflect( viewIncidentDir, viewNormal ).toVar();
-
-			}
+			const perceptualRoughness = float( this.roughnessNode );
+			const alpha = perceptualRoughness.mul( perceptualRoughness );
+			const u = getRandomSample( screenCoordinate.xy );
+			const viewReflectDir = sampleReflectionDirection( viewIncidentDir.negate(), viewNormal, alpha, u ).toVar();
 
 			// adapt maximum distance to the local geometry (see https://www.mathsisfun.com/algebra/vectors-dot-product.html)
 			const maxReflectRayLen = this.maxDistance.div( dot( viewIncidentDir.negate(), viewNormal ) ).toVar();
@@ -662,8 +640,8 @@ export default SSRNode;
  * @param {Node<float>} depthNode - A node that represents the beauty pass's depth.
  * @param {Node<vec3>} normalNode - A node that represents the beauty pass's normals.
  * @param {Node<float>} metalnessNode - A node that represents the beauty pass's metalness.
- * @param {?Node<float>} [roughnessNode=null] - A node that represents the beauty pass's roughness.
+ * @param {?Node<float>} roughnessNode - A node that represents the beauty pass's roughness.
  * @param {?Camera} [camera=null] - The camera the scene is rendered with.
  * @returns {SSRNode}
  */
-export const ssr = ( colorNode, depthNode, normalNode, metalnessNode, roughnessNode = null, camera = null ) => new SSRNode( nodeObject( colorNode ), nodeObject( depthNode ), nodeObject( normalNode ), nodeObject( metalnessNode ), nodeObject( roughnessNode ), camera );
+export const ssr = ( colorNode, depthNode, normalNode, metalnessNode, roughnessNode, camera = null ) => new SSRNode( nodeObject( colorNode ), nodeObject( depthNode ), nodeObject( normalNode ), nodeObject( metalnessNode ), nodeObject( roughnessNode ), camera );
