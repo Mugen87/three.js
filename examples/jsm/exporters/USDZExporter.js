@@ -2,7 +2,10 @@ import {
 	NoColorSpace,
 	DoubleSide,
 	Color,
+	Matrix4,
 	PropertyBinding,
+	Quaternion,
+	Vector3,
 } from 'three';
 
 import {
@@ -19,6 +22,15 @@ class USDNode {
 		this.metadata = metadata;
 		this.properties = properties;
 		this.children = [];
+		this.parent = null;
+
+	}
+
+	getPath() {
+
+		const segments = [];
+		for ( let n = this; n !== null; n = n.parent ) segments.unshift( n.name );
+		return '/' + segments.join( '/' );
 
 	}
 
@@ -36,6 +48,7 @@ class USDNode {
 
 	addChild( child ) {
 
+		child.parent = this;
 		this.children.push( child );
 
 	}
@@ -214,8 +227,11 @@ class USDZExporter {
 		// model file should be first in USDZ archive so we init it here
 		files[ modelFileName ] = null;
 
+		scene.updateMatrixWorld( true );
+
 		const animationTracks = buildAnimationTracks( scene, options.animations );
 		options.animationTracks = animationTracks;
+		options.skinnedBones = collectSkinnedBones( scene );
 
 		const root = new USDNode( 'Root', 'Xform' );
 		const scenesNode = new USDNode( 'Scenes', 'Scope' );
@@ -463,6 +479,9 @@ function buildHeader( timeRange = null ) {
 function buildAnimationTracks( scene, clips ) {
 
 	// Map<Object3D, { position?: KeyframeTrack, quaternion?: KeyframeTrack, scale?: KeyframeTrack }>
+	// When multiple clips contain tracks for the same (object, property) — common for glTF
+	// assets that ship an extra "T-Pose" clip alongside the main animation — the first clip
+	// to provide a track wins, since USD's SkelAnimation only authors one transform stream.
 	const tracksByObject = new Map();
 
 	for ( let c = 0; c < clips.length; c ++ ) {
@@ -488,7 +507,7 @@ function buildAnimationTracks( scene, clips ) {
 
 			}
 
-			entry[ property ] = track;
+			if ( entry[ property ] === undefined ) entry[ property ] = track;
 
 		}
 
@@ -546,6 +565,333 @@ function buildQuaternionTimeSamples( track, fps ) {
 
 }
 
+// Skel
+
+function collectSkinnedBones( scene ) {
+
+	const bones = new Set();
+
+	scene.traverse( ( object ) => {
+
+		if ( object.isSkinnedMesh && object.skeleton ) {
+
+			for ( const bone of object.skeleton.bones ) bones.add( bone );
+
+		}
+
+	} );
+
+	return bones;
+
+}
+
+function buildJointPaths( skeleton ) {
+
+	const bones = skeleton.bones;
+	const boneSet = new Set( bones );
+	const pathByBone = new Map();
+
+	function sanitize( name ) {
+
+		let n = ( name || '' ).replace( /[^A-Za-z0-9_]/g, '_' );
+		if ( n === '' || /^[0-9]/.test( n ) ) n = '_' + n;
+		return n;
+
+	}
+
+	function computePath( bone ) {
+
+		if ( pathByBone.has( bone ) ) return pathByBone.get( bone );
+
+		const segment = sanitize( bone.name );
+		const parent = bone.parent;
+		const path = ( parent && boneSet.has( parent ) )
+			? computePath( parent ) + '/' + segment
+			: segment;
+
+		pathByBone.set( bone, path );
+		return path;
+
+	}
+
+	for ( const bone of bones ) computePath( bone );
+
+	return pathByBone;
+
+}
+
+function buildSkinnedMesh( skinnedMesh, parentNode, materials, usedNames, options ) {
+
+	const geometry = skinnedMesh.geometry;
+	const isMultiMaterial = Array.isArray( skinnedMesh.material );
+	const meshMaterials = isMultiMaterial ? skinnedMesh.material : [ skinnedMesh.material ];
+
+	for ( let i = 0; i < meshMaterials.length; i ++ ) {
+
+		const material = meshMaterials[ i ];
+
+		if ( ! material.isMeshStandardMaterial ) {
+
+			console.warn( 'THREE.USDZExporter: Use MeshStandardMaterial for best results.' );
+
+		}
+
+		if ( ! ( material.uuid in materials ) ) {
+
+			materials[ material.uuid ] = material;
+
+		}
+
+	}
+
+	const resolvedMaterials = meshMaterials.map( ( m ) => materials[ m.uuid ] );
+
+	// The SkelRoot replaces the SkinnedMesh's Xform with identity local transform; it inherits
+	// its parent's matrixWorld via the USD hierarchy. All skel data (bindTransforms, joint
+	// locals, geomBindTransform) is therefore authored in SkelRoot-local space — i.e. relative
+	// to the SkinnedMesh's parent's world matrix.
+	const name = getName( skinnedMesh, usedNames );
+	const skelRoot = new USDNode( name, 'SkelRoot' );
+	parentNode.addChild( skelRoot );
+
+	const skelRootPath = skelRoot.getPath();
+
+	const parentWorldInv = new Matrix4();
+	if ( skinnedMesh.parent !== null ) parentWorldInv.copy( skinnedMesh.parent.matrixWorld ).invert();
+
+	const skeleton = skinnedMesh.skeleton;
+	const jointPaths = buildJointPaths( skeleton );
+
+	const skelNode = buildSkeletonNode( skeleton, jointPaths, parentWorldInv );
+
+	const skelAnimNode = buildSkelAnimationNode( skeleton, jointPaths, parentWorldInv, options );
+
+	if ( skelAnimNode !== null ) {
+
+		skelNode.addChild( skelAnimNode );
+		skelNode.addProperty( `rel skel:animationSource = <${skelRootPath}/Skel/Anim>` );
+
+	}
+
+	skelRoot.addChild( skelNode );
+
+	const geomBindTransform = new Matrix4().copy( skinnedMesh.bindMatrix ).premultiply( parentWorldInv );
+	const meshNode = buildMeshNode( geometry, resolvedMaterials, true, skelRootPath, geomBindTransform );
+	skelRoot.addChild( meshNode );
+
+}
+
+function buildSkeletonNode( skeleton, jointPaths, parentWorldInv ) {
+
+	const node = new USDNode( 'Skel', 'Skeleton' );
+	node.addMetadata( 'prepend apiSchemas', '["SkelBindingAPI"]' );
+
+	const bones = skeleton.bones;
+	const boneSet = new Set( bones );
+
+	const jointTokens = bones.map( ( b ) => `"${jointPaths.get( b )}"` ).join( ', ' );
+	node.addProperty( `uniform token[] joints = [${jointTokens}]` );
+
+	const tmpA = new Matrix4();
+	const tmpB = new Matrix4();
+
+	// bindTransforms: per-joint bind-pose transforms in SkelRoot-local space. three.js's
+	// boneInverses are inv(bone.matrixWorld) at bind in scene world, so inverting them lifts
+	// back to scene world, then parentWorldInv brings it into SkelRoot-local.
+	const bindStrs = bones.map( ( bone, i ) => {
+
+		tmpA.copy( skeleton.boneInverses[ i ] ).invert().premultiply( parentWorldInv );
+		return buildMatrix( tmpA );
+
+	} );
+	node.addProperty( `uniform matrix4d[] bindTransforms = [${bindStrs.join( ', ' )}]` );
+
+	// restTransforms: local-to-parent-joint rest pose, derived from the same bind data so
+	// the fallback pose matches the bind pose exactly.
+	const restStrs = bones.map( ( bone, i ) => {
+
+		const parent = bone.parent;
+		if ( parent && boneSet.has( parent ) ) {
+
+			const parentIdx = bones.indexOf( parent );
+			tmpA.copy( skeleton.boneInverses[ i ] ).invert();
+			tmpB.copy( skeleton.boneInverses[ parentIdx ] );
+			tmpA.premultiply( tmpB );
+			return buildMatrix( tmpA );
+
+		} else {
+
+			tmpA.copy( skeleton.boneInverses[ i ] ).invert().premultiply( parentWorldInv );
+			return buildMatrix( tmpA );
+
+		}
+
+	} );
+	node.addProperty( `uniform matrix4d[] restTransforms = [${restStrs.join( ', ' )}]` );
+
+	return node;
+
+}
+
+function buildSkelAnimationNode( skeleton, jointPaths, parentWorldInv, options ) {
+
+	const tracksByObject = options.animationTracks;
+	const fps = options.animationFrameRate;
+	const bones = skeleton.bones;
+	const boneSet = new Set( bones );
+
+	let hasAnimation = false;
+	let maxTime = 0;
+
+	for ( const bone of bones ) {
+
+		const entry = tracksByObject.get( bone );
+		if ( entry === undefined ) continue;
+		hasAnimation = true;
+
+		for ( const key of [ 'position', 'quaternion', 'scale' ] ) {
+
+			const track = entry[ key ];
+			if ( track === undefined ) continue;
+			const last = track.times[ track.times.length - 1 ];
+			if ( last > maxTime ) maxTime = last;
+
+		}
+
+	}
+
+	if ( ! hasAnimation ) return null;
+
+	const totalFrames = Math.max( 1, Math.ceil( maxTime * fps ) );
+
+	// For root joints (no bone parent in this skeleton), their three.js-local TRS is relative
+	// to their three.js parent (e.g. an Armature Object3D). To express that in SkelRoot-local
+	// space we precompose parentWorldInv * bone.parent.matrixWorld; non-bone ancestors of root
+	// joints are assumed static.
+	const rootJointBase = new Map();
+	for ( const bone of bones ) {
+
+		if ( bone.parent && boneSet.has( bone.parent ) ) continue;
+
+		const base = new Matrix4();
+		if ( bone.parent !== null ) base.multiplyMatrices( parentWorldInv, bone.parent.matrixWorld );
+		else base.copy( parentWorldInv );
+		rootJointBase.set( bone, base );
+
+	}
+
+	const interpolants = new Map();
+	for ( const bone of bones ) {
+
+		const entry = tracksByObject.get( bone );
+		if ( entry === undefined ) continue;
+		const ip = {};
+		if ( entry.position !== undefined ) ip.position = entry.position.createInterpolant();
+		if ( entry.quaternion !== undefined ) ip.quaternion = entry.quaternion.createInterpolant();
+		if ( entry.scale !== undefined ) ip.scale = entry.scale.createInterpolant();
+		interpolants.set( bone, ip );
+
+	}
+
+	const tmpMat = new Matrix4();
+	const tmpPos = new Vector3();
+	const tmpQuat = new Quaternion();
+	const tmpScale = new Vector3();
+	const localPos = new Vector3();
+	const localQuat = new Quaternion();
+	const localScale = new Vector3();
+
+	const transFrames = [];
+	const rotFrames = [];
+	const scaleFrames = [];
+
+	for ( let f = 0; f <= totalFrames; f ++ ) {
+
+		const t = f / fps;
+		const transSamples = [];
+		const rotSamples = [];
+		const scaleSamples = [];
+
+		for ( const bone of bones ) {
+
+			const ip = interpolants.get( bone );
+
+			if ( ip !== undefined && ip.position !== undefined ) {
+
+				const v = ip.position.evaluate( t );
+				localPos.set( v[ 0 ], v[ 1 ], v[ 2 ] );
+
+			} else {
+
+				localPos.copy( bone.position );
+
+			}
+
+			if ( ip !== undefined && ip.quaternion !== undefined ) {
+
+				const v = ip.quaternion.evaluate( t );
+				localQuat.set( v[ 0 ], v[ 1 ], v[ 2 ], v[ 3 ] );
+
+			} else {
+
+				localQuat.copy( bone.quaternion );
+
+			}
+
+			if ( ip !== undefined && ip.scale !== undefined ) {
+
+				const v = ip.scale.evaluate( t );
+				localScale.set( v[ 0 ], v[ 1 ], v[ 2 ] );
+
+			} else {
+
+				localScale.copy( bone.scale );
+
+			}
+
+			let outPos, outQuat, outScale;
+
+			const base = rootJointBase.get( bone );
+			if ( base !== undefined ) {
+
+				tmpMat.compose( localPos, localQuat, localScale ).premultiply( base );
+				tmpMat.decompose( tmpPos, tmpQuat, tmpScale );
+				outPos = tmpPos;
+				outQuat = tmpQuat;
+				outScale = tmpScale;
+
+			} else {
+
+				outPos = localPos;
+				outQuat = localQuat;
+				outScale = localScale;
+
+			}
+
+			transSamples.push( `(${outPos.x.toPrecision( PRECISION )}, ${outPos.y.toPrecision( PRECISION )}, ${outPos.z.toPrecision( PRECISION )})` );
+			// USD quatf order is (w, x, y, z)
+			rotSamples.push( `(${outQuat.w.toPrecision( PRECISION )}, ${outQuat.x.toPrecision( PRECISION )}, ${outQuat.y.toPrecision( PRECISION )}, ${outQuat.z.toPrecision( PRECISION )})` );
+			scaleSamples.push( `(${outScale.x.toPrecision( PRECISION )}, ${outScale.y.toPrecision( PRECISION )}, ${outScale.z.toPrecision( PRECISION )})` );
+
+		}
+
+		transFrames.push( `${f}: [${transSamples.join( ', ' )}]` );
+		rotFrames.push( `${f}: [${rotSamples.join( ', ' )}]` );
+		scaleFrames.push( `${f}: [${scaleSamples.join( ', ' )}]` );
+
+	}
+
+	const node = new USDNode( 'Anim', 'SkelAnimation' );
+	const jointTokens = bones.map( ( b ) => `"${jointPaths.get( b )}"` ).join( ', ' );
+	node.addProperty( `uniform token[] joints = [${jointTokens}]` );
+	node.addProperty( `float3[] translations.timeSamples = {\n\t${transFrames.join( ',\n\t' )},\n}` );
+	node.addProperty( `quatf[] rotations.timeSamples = {\n\t${rotFrames.join( ',\n\t' )},\n}` );
+	node.addProperty( `half3[] scales.timeSamples = {\n\t${scaleFrames.join( ',\n\t' )},\n}` );
+
+	return node;
+
+}
+
 // Xform
 
 function buildHierarchy( object, parentNode, materials, usedNames, files, options ) {
@@ -562,9 +908,18 @@ function buildNode( object, parentNode, materials, usedNames, files, options ) {
 
 	if ( object.visible === false && options.onlyVisible === true ) return;
 
+	// Bones belonging to an exported SkinnedMesh's skeleton are emitted as joints inside the
+	// Skeleton prim rather than as standalone Xform prims; descend stops here for them.
+	if ( options.skinnedBones.has( object ) ) return;
+
 	let childNode;
 
-	if ( object.isMesh ) {
+	if ( object.isSkinnedMesh ) {
+
+		buildSkinnedMesh( object, parentNode, materials, usedNames, options );
+		return;
+
+	} else if ( object.isMesh ) {
 
 		const geometry = object.geometry;
 		const isMultiMaterial = Array.isArray( object.material );
@@ -777,20 +1132,23 @@ function buildMeshObject( geometry ) {
 
 }
 
-function buildMeshNode( geometry, materials = null ) {
+function buildMeshNode( geometry, materials = null, skinning = false, skelRootPath = null, geomBindTransform = null ) {
 
-	const name = 'Geometry';
 	const attributes = geometry.attributes;
 	const count = attributes.position.count;
 
-	const node = new USDNode( name, 'Mesh' );
+	// Skinned meshes are emitted inline under their SkelRoot (named "Mesh"); non-skinned
+	// meshes go into a referenced Geometry_<id>.usda file (named "Geometry").
+	const node = new USDNode( skinning ? 'Mesh' : 'Geometry', 'Mesh' );
 
-	node.addProperty(
-		`int[] faceVertexCounts = [${buildMeshVertexCount( geometry )}]`
-	);
-	node.addProperty(
-		`int[] faceVertexIndices = [${buildMeshVertexIndices( geometry )}]`
-	);
+	if ( skinning ) {
+
+		node.addMetadata( 'prepend apiSchemas', '["MaterialBindingAPI", "SkelBindingAPI"]' );
+
+	}
+
+	node.addProperty( `int[] faceVertexCounts = [${buildMeshVertexCount( geometry )}]` );
+	node.addProperty( `int[] faceVertexIndices = [${buildMeshVertexIndices( geometry )}]` );
 	node.addProperty(
 		`normal3f[] normals = [${buildVector3Array( attributes.normal, count )}]`,
 		[ 'interpolation = "vertex"' ]
@@ -818,10 +1176,7 @@ function buildMeshNode( geometry, materials = null ) {
 	if ( colorAttribute !== undefined ) {
 
 		node.addProperty(
-			`color3f[] primvars:displayColor = [${buildVector3Array(
-				colorAttribute,
-				count
-			)}]`,
+			`color3f[] primvars:displayColor = [${buildVector3Array( colorAttribute, count )}]`,
 			[ 'interpolation = "vertex"' ]
 		);
 
@@ -829,36 +1184,79 @@ function buildMeshNode( geometry, materials = null ) {
 
 	node.addProperty( 'uniform token subdivisionScheme = "none"' );
 
-	if ( materials !== null ) {
+	if ( skinning ) {
 
-		const groups = geometry.groups;
+		const skinIndex = attributes.skinIndex;
+		const skinWeight = attributes.skinWeight;
 
-		const totalFaces = ( geometry.index !== null
-			? geometry.index.count
-			: attributes.position.count ) / 3;
-
-		for ( let i = 0; i < groups.length; i ++ ) {
-
-			const group = groups[ i ];
-			const material = materials[ group.materialIndex ];
-
-			if ( material === undefined ) continue;
-
-			const startFace = Math.floor( group.start / 3 );
-			const endFace = Math.min( startFace + Math.floor( group.count / 3 ), totalFaces );
+		if ( skinIndex !== undefined && skinWeight !== undefined ) {
 
 			const indices = [];
-			for ( let j = startFace; j < endFace; j ++ ) indices.push( j );
+			const weights = [];
+			for ( let i = 0; i < count; i ++ ) {
 
-			const subsetNode = new USDNode( `subset_${i}`, 'GeomSubset' );
-			subsetNode.addMetadata( 'prepend apiSchemas', '["MaterialBindingAPI"]' );
-			subsetNode.addProperty( 'uniform token elementType = "face"' );
-			subsetNode.addProperty( 'uniform token familyName = "materialBind"' );
-			subsetNode.addProperty( `int[] indices = [${indices.join( ', ' )}]` );
-			subsetNode.addProperty(
-				`rel material:binding = </Materials/Material_${material.id}>`
+				indices.push( skinIndex.getX( i ), skinIndex.getY( i ), skinIndex.getZ( i ), skinIndex.getW( i ) );
+				weights.push(
+					skinWeight.getX( i ).toPrecision( PRECISION ),
+					skinWeight.getY( i ).toPrecision( PRECISION ),
+					skinWeight.getZ( i ).toPrecision( PRECISION ),
+					skinWeight.getW( i ).toPrecision( PRECISION )
+				);
+
+			}
+
+			node.addProperty(
+				`int[] primvars:skel:jointIndices = [${indices.join( ', ' )}]`,
+				[ 'elementSize = 4', 'interpolation = "vertex"' ]
 			);
-			node.addChild( subsetNode );
+			node.addProperty(
+				`float[] primvars:skel:jointWeights = [${weights.join( ', ' )}]`,
+				[ 'elementSize = 4', 'interpolation = "vertex"' ]
+			);
+
+		}
+
+		node.addProperty( `matrix4d primvars:skel:geomBindTransform = ${buildMatrix( geomBindTransform )}` );
+		node.addProperty( `rel skel:skeleton = <${skelRootPath}/Skel>` );
+
+	}
+
+	// Material binding. Skinned single-material meshes bind directly on the prim (there is no
+	// wrapping Xform that can carry the binding); non-skinned single-material meshes leave it
+	// to their parent Xform — see `buildMesh`. Multi-material meshes always use GeomSubsets.
+	if ( materials !== null ) {
+
+		if ( skinning && materials.length === 1 ) {
+
+			node.addProperty( `rel material:binding = </Materials/Material_${materials[ 0 ].id}>` );
+
+		} else if ( materials.length > 1 ) {
+
+			const groups = geometry.groups;
+			const totalFaces = ( geometry.index !== null ? geometry.index.count : attributes.position.count ) / 3;
+
+			for ( let i = 0; i < groups.length; i ++ ) {
+
+				const group = groups[ i ];
+				const material = materials[ group.materialIndex ];
+
+				if ( material === undefined ) continue;
+
+				const startFace = Math.floor( group.start / 3 );
+				const endFace = Math.min( startFace + Math.floor( group.count / 3 ), totalFaces );
+
+				const indices = [];
+				for ( let j = startFace; j < endFace; j ++ ) indices.push( j );
+
+				const subsetNode = new USDNode( `subset_${i}`, 'GeomSubset' );
+				subsetNode.addMetadata( 'prepend apiSchemas', '["MaterialBindingAPI"]' );
+				subsetNode.addProperty( 'uniform token elementType = "face"' );
+				subsetNode.addProperty( 'uniform token familyName = "materialBind"' );
+				subsetNode.addProperty( `int[] indices = [${indices.join( ', ' )}]` );
+				subsetNode.addProperty( `rel material:binding = </Materials/Material_${material.id}>` );
+				node.addChild( subsetNode );
+
+			}
 
 		}
 
